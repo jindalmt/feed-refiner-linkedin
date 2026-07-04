@@ -1,0 +1,192 @@
+/* =====================================================================
+   LinkedIn Beautifier — Design System (styles.css)
+   ---------------------------------------------------------------------
+   Architecture: "Preset + Modifier"
+
+   Presets (top-level body classes, mutually exclusive):
+     body.mode-zen        -> Immersive reading
+     body.mode-executive  -> High-density dashboard
+     body.mode-classic    -> Premium minimalist 3-column
+
+   Modifiers (body data-attributes, independent, work in any mode):
+     [data-hide-left]      -> left sidebar visibility
+     [data-hide-right]     -> right sidebar visibility
+     [data-hide-promoted]  -> sponsored posts + inline/sidebar ad widgets
+     [data-hide-vanity]    -> reaction / comment / repost counts
+     [data-kill-messaging] -> floating messaging tray
+
+   Resilient structural anchors (see content.js for the full mapping):
+     aside[aria-label="Sidebar"]          -> Left rail (profile/nav)
+     section[aria-label="Primary content"]-> Main feed rail
+     aside[aria-label="Aside"]            -> Right rail (news/puzzles)
+     [data-testid="mainFeed"]            -> The feed list (LazyColumn)
+     [data-lbf-post]                     -> A single feed item  (tagged by JS)
+     [data-lbf-sponsored]                -> A promoted feed item (tagged by JS)
+     [data-lbf-ad-widget]                -> Inline / sidebar ad  (tagged by JS)
+     [data-lbf-vanity]                   -> A vanity-metric node (tagged by JS)
+   ===================================================================== */
+
+:root {
+  --lbf-zen-width: 720px;
+  --lbf-exec-width: 1120px;
+  --lbf-radius: 12px;
+  --lbf-gap: 16px;
+  --lbf-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+/* Convenience alias: the 3-column grid row that wraps the two asides + feed.
+   Selected structurally via :has() so it survives class-name churn. */
+
+/* ---------------------------------------------------------------------
+   MODIFIERS — De-clutter controls (mode-agnostic)
+   Explicit rules so a modifier always wins, in every preset.
+   --------------------------------------------------------------------- */
+
+/* Sidebar visibility (seeded by presets, then user-overridable) */
+body[data-hide-left="true"] aside[aria-label="Sidebar"] {
+  display: none !important;
+}
+body[data-hide-right="true"] aside[aria-label="Aside"] {
+  display: none !important;
+}
+
+/* Hide promoted posts + inline/sidebar ad widgets */
+body[data-hide-promoted="true"] [data-lbf-sponsored],
+body[data-hide-promoted="true"] [data-lbf-ad-widget] {
+  display: none !important;
+}
+
+/* Hide vanity metrics unless the post is hovered */
+body[data-hide-vanity="true"] [data-lbf-vanity] {
+  visibility: hidden !important;
+}
+body[data-hide-vanity="true"] [data-lbf-post]:hover [data-lbf-vanity] {
+  visibility: visible !important;
+}
+
+/* Kill the floating messaging tray (bottom-right overlay) */
+body[data-kill-messaging="true"] [data-lbf-messaging] {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------
+   PRESET 1 — ZEN MODE  (Immersive reading)
+   Centers the feed, broadens to an elegant reading width, refines type.
+   Sidebars are hidden via seeded [data-hide-*] toggles (see popup.js).
+   --------------------------------------------------------------------- */
+body.mode-zen main#workspace div:has(> aside[aria-label="Sidebar"]) {
+  display: flex !important;
+  justify-content: center !important;
+}
+
+body.mode-zen section[aria-label="Primary content"] {
+  max-width: var(--lbf-zen-width) !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  flex: 0 1 var(--lbf-zen-width) !important;
+}
+
+/* Reading-optimized typography inside each post */
+body.mode-zen [data-lbf-post] {
+  font-size: 15.5px !important;
+  line-height: 1.65 !important;
+  letter-spacing: 0.1px !important;
+}
+body.mode-zen [data-lbf-post] [data-testid="expandable-text-box"] {
+  font-size: 16px !important;
+  line-height: 1.7 !important;
+}
+
+/* Calm, unified card surface */
+body.mode-zen [data-lbf-post] {
+  border-radius: var(--lbf-radius) !important;
+  margin-bottom: var(--lbf-gap) !important;
+}
+
+/* ---------------------------------------------------------------------
+   PRESET 2 — EXECUTIVE DASHBOARD  (High density)
+   Wide rail + CSS Grid multi-column + condensed, text-focused cards.
+   --------------------------------------------------------------------- */
+body.mode-executive main#workspace div:has(> aside[aria-label="Sidebar"]) {
+  display: flex !important;
+  justify-content: center !important;
+}
+body.mode-executive section[aria-label="Primary content"] {
+  max-width: var(--lbf-exec-width) !important;
+  width: 100% !important;
+  flex: 0 1 var(--lbf-exec-width) !important;
+}
+
+/* Turn the single-column feed list into a responsive multi-column grid.
+   The LazyColumn's transparent wrappers are collapsed with display:contents
+   so the tagged post cards become the actual grid items. Degrades safely
+   to a single column if the internal structure changes. */
+body.mode-executive [data-testid="mainFeed"] {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  align-items: start !important;
+}
+body.mode-executive [data-testid="mainFeed"] > [data-lazy-mount-id],
+body.mode-executive [data-testid="mainFeed"] > div[style*="display:contents"],
+body.mode-executive [data-testid="mainFeed"] > div[style*="display: contents"] {
+  display: contents !important;
+}
+
+/* Condensed, informational cards */
+body.mode-executive [data-lbf-post] {
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+}
+
+/* Clamp long commentary so cards stay compact and scannable */
+body.mode-executive [data-lbf-post] [data-testid="expandable-text-box"] {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 4 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+/* Shrink heavy media so text dominates */
+body.mode-executive [data-lbf-post] video,
+body.mode-executive [data-lbf-post] .video-js,
+body.mode-executive [data-lbf-post] img[fetchpriority] {
+  max-height: 240px !important;
+}
+
+@media (max-width: 1200px) {
+  body.mode-executive [data-testid="mainFeed"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   PRESET 3 — MINIMALIST CLASSIC  (Premium clean)
+   Keeps the native 3-column anatomy; elevates radii, type and spacing.
+   --------------------------------------------------------------------- */
+body.mode-classic [data-lbf-post] {
+  border-radius: var(--lbf-radius) !important;
+  box-shadow: var(--lbf-card-shadow) !important;
+  margin-bottom: var(--lbf-gap) !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+}
+body.mode-classic [data-lbf-post] [data-testid="expandable-text-box"] {
+  font-size: 14.5px !important;
+  line-height: 1.55 !important;
+}
+body.mode-classic aside[aria-label="Sidebar"] > *,
+body.mode-classic aside[aria-label="Aside"] > * {
+  border-radius: var(--lbf-radius) !important;
+}
+
+/* ---------------------------------------------------------------------
+   Shared micro-polish across every preset
+   --------------------------------------------------------------------- */
+[data-lbf-post] {
+  transition: box-shadow 0.15s ease, transform 0.15s ease !important;
+}

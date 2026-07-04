@@ -1,0 +1,14 @@
+# Build artifacts
+*.zip
+
+# Research / scratch files (not part of the extension)
+*.txt
+*.png
+!extension/icons/*.png
+linkedinfeed.html
+initial-request.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

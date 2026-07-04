@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LinkedIn Beautifier</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <span class="mark-bar"></span>
+          <span class="mark-bar"></span>
+          <span class="mark-bar"></span>
+        </span>
+        <div class="brand-text">
+          <h1>Feed Beautifier</h1>
+          <p>Cleaner reading for your feed</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============ PRESETS ============ -->
+    <section class="section">
+      <h2 class="section-title">Layout Mode</h2>
+      <div class="preset-grid" role="radiogroup" aria-label="Layout mode">
+        <button
+          class="preset-card"
+          data-mode="zen"
+          role="radio"
+          aria-checked="false"
+        >
+          <span class="preset-glyph">
+            <span class="glyph-zen"></span>
+          </span>
+          <span class="preset-name">Zen</span>
+          <span class="preset-desc">Immersive reading</span>
+        </button>
+
+        <button
+          class="preset-card"
+          data-mode="executive"
+          role="radio"
+          aria-checked="false"
+        >
+          <span class="preset-glyph">
+            <span class="glyph-exec"></span>
+          </span>
+          <span class="preset-name">Executive</span>
+          <span class="preset-desc">High density</span>
+        </button>
+
+        <button
+          class="preset-card"
+          data-mode="classic"
+          role="radio"
+          aria-checked="false"
+        >
+          <span class="preset-glyph">
+            <span class="glyph-classic"></span>
+          </span>
+          <span class="preset-name">Minimalist</span>
+          <span class="preset-desc">Premium clean</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ MODIFIERS ============ -->
+    <section class="section">
+      <h2 class="section-title">De-clutter</h2>
+      <ul class="toggle-list">
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Hide promoted posts &amp; ads</span>
+            <span class="toggle-sub">Sponsored feed items + ad widgets</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="hidePromoted" />
+            <span class="slider"></span>
+          </label>
+        </li>
+
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Hide vanity metrics</span>
+            <span class="toggle-sub">Reveal counts on hover only</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="hideVanity" />
+            <span class="slider"></span>
+          </label>
+        </li>
+
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Hide left sidebar</span>
+            <span class="toggle-sub">Profile &amp; navigation rail</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="hideLeft" />
+            <span class="slider"></span>
+          </label>
+        </li>
+
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Hide right sidebar</span>
+            <span class="toggle-sub">News, trending &amp; puzzles</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="hideRight" />
+            <span class="slider"></span>
+          </label>
+        </li>
+
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Kill messaging tray</span>
+            <span class="toggle-sub">Floating bottom-right chat bar</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="killMessaging" />
+            <span class="slider"></span>
+          </label>
+        </li>
+      </ul>
+    </section>
+
+    <footer class="app-footer">
+      <span id="status" class="status" role="status" aria-live="polite"></span>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

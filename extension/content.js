@@ -1737,6 +1737,31 @@
   }
 
   /* ===================================================================
+     "…MORE" EXPAND BRIDGE  (compact-grid clamp release)
+     ---------------------------------------------------------------------
+     In compact-grid (executive) mode the CSS clamps long post commentary
+     to a few lines so cards stay uniform. LinkedIn's own inline "…more"
+     button removes *its* clamp, but our clamp would otherwise keep the
+     text truncated. When the reader clicks "…more", mirror that intent
+     onto the post root so the clamp releases and the whole post shows.
+     Capture-phase so it fires even if LinkedIn stops propagation.
+     =================================================================== */
+  function startExpandBridge() {
+    document.addEventListener(
+      'click',
+      (e) => {
+        const t = e.target;
+        if (!t || !t.closest) return;
+        const btn = t.closest('[data-testid="expandable-text-button"]');
+        if (!btn) return;
+        const post = btn.closest('[data-lbf-post]');
+        if (post) post.dataset.lbfExpanded = 'true';
+      },
+      true
+    );
+  }
+
+  /* ===================================================================
      BOOTSTRAP
      =================================================================== */
   function ensureBody(cb) {
@@ -1760,6 +1785,7 @@
         ensureBody(() => {
           applyState(saved);
           startObserver();
+          startExpandBridge();
           startBudgetWatchdog();
         });
       });

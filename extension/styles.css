@@ -141,10 +141,18 @@ body.mode-executive [data-lbf-post] {
   overflow: hidden !important;
 }
 
-/* Clamp long commentary so cards stay compact and scannable */
-body.mode-executive [data-lbf-post] [data-testid="expandable-text-box"] {
+/* Clamp long commentary so cards stay compact and scannable — but ONLY
+   posts LinkedIn itself truncates (they carry its inline "…more" button),
+   so there is always a way to expand. Posts short enough to lack that
+   button are shown in full — never silently cut off. Clicking "…more"
+   sets data-lbf-expanded on the post (see content.js), which drops the
+   clamp and reveals the entire post. */
+body.mode-executive
+  [data-lbf-post]:not([data-lbf-expanded="true"])
+  [data-testid="expandable-text-box"]:has([data-testid="expandable-text-button"]) {
   display: -webkit-box !important;
   -webkit-line-clamp: 4 !important;
+  line-clamp: 4 !important;
   -webkit-box-orient: vertical !important;
   overflow: hidden !important;
 }

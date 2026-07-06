@@ -1,8 +1,8 @@
-# Privacy Policy — Feed Beautifier for LinkedIn
+# Privacy Policy — Feed Refiner for LinkedIn
 
-**Last updated: 4 July 2026**
+**Last updated: 5 July 2026**
 
-Feed Beautifier for LinkedIn ("the extension") is committed to protecting your
+Feed Refiner for LinkedIn ("the extension") is committed to protecting your
 privacy. This policy explains what the extension does and does not do with your
 information.
 
@@ -13,10 +13,12 @@ data. Everything it does happens locally inside your own web browser.
 
 ## What the extension stores
 
-The extension saves your chosen layout preset (Zen, Executive, or Minimalist) and
-your de-clutter toggle settings (such as hiding promoted posts or side rails).
-These preferences are stored using the browser's local `chrome.storage.local`
-API so that your settings are remembered between visits.
+The extension saves your chosen layout preset (Focus Reader, Compact Grid, or
+Modern Classic), your de-clutter and insight toggle settings (such as hiding
+promoted posts, the AI/spam detectors, the comment silencer, or the ⚡ TL;DR
+summarizer), and your local daily post counter used by the optional Time Budget
+feature. These preferences are stored using the browser's local
+`chrome.storage.local` API so that your settings are remembered between visits.
 
 This data:
 
@@ -29,9 +31,17 @@ This data:
 ## What the extension accesses
 
 The extension runs only on `https://www.linkedin.com/feed/` pages. It reads the
-structure of the feed solely to apply your chosen visual layout and hide the
-elements you selected. It does **not** read, record, or transmit the content of
-your feed, your messages, your profile, or any other information.
+structure of the feed to apply your chosen visual layout and hide the elements
+you selected.
+
+When you enable an optional insight tool (the AI content detector, spam detector,
+comment silencer, or the ⚡ TL;DR summarizer), the extension also reads the
+visible **text** of feed posts and comments so it can score or summarize that
+text. This analysis happens **entirely on your device, in memory, at the moment
+you view a post**. The extension does **not** store, log, record, or transmit
+that text, your messages, your profile, or any other information. Nothing is sent
+to us or to any third party, and no copy of the text is retained after the page
+is closed.
 
 ## Data collection
 
@@ -45,9 +55,10 @@ third-party tracking or advertising code.
 
 ## Permissions
 
-- **storage** — to save your layout and toggle preferences locally.
+- **storage** — to save your layout, toggle, and daily-count preferences locally.
 - **activeTab / host access to www.linkedin.com/feed** — to restyle the LinkedIn
-  feed page you are viewing.
+  feed page you are viewing and, when enabled, run the on-device insight tools
+  described above.
 
 ## Changes to this policy
 
@@ -57,9 +68,9 @@ revised "Last updated" date.
 ## Contact
 
 For questions about this policy, open an issue at:
-https://github.com/jindalmt/feed-beautifier-linkedin/issues
+https://github.com/jindalmt/feed-refiner-linkedin/issues
 
 ---
 
-*Feed Beautifier for LinkedIn is an independent project and is not affiliated
+*Feed Refiner for LinkedIn is an independent project and is not affiliated
 with, endorsed by, or sponsored by LinkedIn.*

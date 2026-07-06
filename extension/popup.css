@@ -1,5 +1,5 @@
 /* =====================================================================
-   LinkedIn Beautifier — Popup styles (popup.css)
+   Feed Refiner for LinkedIn — Popup styles (popup.css)
    ===================================================================== */
 * {
   box-sizing: border-box;
@@ -192,6 +192,57 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* Numeric field (Time Budget → posts per day) */
+.num-input {
+  flex: 0 0 auto;
+  width: 62px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--ink);
+  background: #fff;
+  border: 1.5px solid #d5dde3;
+  border-radius: 8px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.num-input:hover {
+  border-color: #b9c4cd;
+}
+.num-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Reset counter pill (Time Budget → today's count) */
+.reset-btn {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  background: #fff;
+  border: 1.5px solid #d5dde3;
+  border-radius: 999px;
+  transition: border-color 0.15s ease, background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.reset-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.reset-btn:active {
+  transform: translateY(0.5px);
+}
+.reset-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .toggle-row {
   display: flex;

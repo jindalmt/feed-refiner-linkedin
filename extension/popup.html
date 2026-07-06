@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LinkedIn Beautifier</title>
+    <title>Feed Refiner for LinkedIn</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -15,7 +15,7 @@
           <span class="mark-bar"></span>
         </span>
         <div class="brand-text">
-          <h1>Feed Beautifier</h1>
+          <h1>Feed Refiner</h1>
           <p>Cleaner reading for your feed</p>
         </div>
       </div>
@@ -34,7 +34,7 @@
           <span class="preset-glyph">
             <span class="glyph-zen"></span>
           </span>
-          <span class="preset-name">Zen</span>
+          <span class="preset-name">Focus Reader</span>
           <span class="preset-desc">Immersive reading</span>
         </button>
 
@@ -47,7 +47,7 @@
           <span class="preset-glyph">
             <span class="glyph-exec"></span>
           </span>
-          <span class="preset-name">Executive</span>
+          <span class="preset-name">Compact Grid</span>
           <span class="preset-desc">High density</span>
         </button>
 
@@ -60,7 +60,7 @@
           <span class="preset-glyph">
             <span class="glyph-classic"></span>
           </span>
-          <span class="preset-name">Minimalist</span>
+          <span class="preset-name">Modern Classic</span>
           <span class="preset-desc">Premium clean</span>
         </button>
       </div>
@@ -77,6 +77,28 @@
           </div>
           <label class="switch">
             <input type="checkbox" data-key="hidePromoted" />
+            <span class="slider"></span>
+          </label>
+        </li>
+
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Hide job recommendations</span>
+            <span class="toggle-sub">"Jobs recommended for you" carousel</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="hideJobs" />
+            <span class="slider"></span>
+          </label>
+        </li>
+
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Hide post composer</span>
+            <span class="toggle-sub">"Start a post" box at the top</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="hideComposer" />
             <span class="slider"></span>
           </label>
         </li>
@@ -113,16 +135,96 @@
             <span class="slider"></span>
           </label>
         </li>
+      </ul>
+    </section>
 
+    <!-- ============ INSIGHTS ============ -->
+    <section class="section">
+      <h2 class="section-title">Insights</h2>
+      <ul class="toggle-list">
         <li class="toggle-row">
           <div class="toggle-label">
-            <span class="toggle-title">Kill messaging tray</span>
-            <span class="toggle-sub">Floating bottom-right chat bar</span>
+            <span class="toggle-title">AI content detector</span>
+            <span class="toggle-sub">Flags likely AI-written posts (on-device)</span>
           </div>
           <label class="switch">
-            <input type="checkbox" data-key="killMessaging" />
+            <input type="checkbox" data-key="aiDetector" />
             <span class="slider"></span>
           </label>
+        </li>
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Spam detector</span>
+            <span class="toggle-sub">Flags emoji/hashtag spam &amp; bait (on-device)</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="spamDetector" />
+            <span class="slider"></span>
+          </label>
+        </li>
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Comment silencer</span>
+            <span class="toggle-sub">Dims engagement-pod &amp; generic comments (on-device)</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="commentSilencer" />
+            <span class="slider"></span>
+          </label>
+        </li>
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">TL;DR summarizer</span>
+            <span class="toggle-sub">Adds a ⚡ TL;DR button to long posts (on-device)</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="tldrSummarizer" />
+            <span class="slider"></span>
+          </label>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ============ TIME BUDGET ============ -->
+    <section class="section">
+      <h2 class="section-title">Time Budget</h2>
+      <ul class="toggle-list">
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Daily post limit</span>
+            <span class="toggle-sub">Show a break screen once reached</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="timeBudgetEnabled" />
+            <span class="slider"></span>
+          </label>
+        </li>
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Posts per day</span>
+            <span class="toggle-sub">Break screen appears after this many</span>
+          </div>
+          <input
+            type="number"
+            id="dailyPostLimit"
+            class="num-input"
+            min="1"
+            max="999"
+            step="1"
+            inputmode="numeric"
+            aria-label="Daily post limit"
+          />
+        </li>
+        <li class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Today's count</span>
+            <span class="toggle-sub">
+              <span id="budgetCount">0</span> posts viewed today
+            </span>
+          </div>
+          <button type="button" id="resetCounter" class="reset-btn">
+            Reset
+          </button>
         </li>
       </ul>
     </section>

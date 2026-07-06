@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Feed Beautifier for LinkedIn",
-  "version": "1.0.0",
-  "description": "Customize your LinkedIn feed layout with 3 reading presets (Zen, Executive, Minimalist) and standalone de-clutter toggles.",
-  "homepage_url": "https://github.com/jindalmt/feed-beautifier-linkedin",
+  "name": "Feed Refiner for LinkedIn",
+  "version": "1.2.0",
+  "description": "Reshape your LinkedIn feed: 3 reading presets, de-clutter toggles, on-device AI/spam flags, TL;DR summaries & a daily post limit.",
+  "homepage_url": "https://github.com/jindalmt/feed-refiner-linkedin",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -11,7 +11,7 @@
   },
   "permissions": ["storage", "activeTab"],
   "action": {
-    "default_title": "Feed Beautifier for LinkedIn",
+    "default_title": "Feed Refiner for LinkedIn",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

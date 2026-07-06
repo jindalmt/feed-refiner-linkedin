@@ -1,5 +1,5 @@
 /* =====================================================================
-   LinkedIn Beautifier — Popup controller (popup.js)
+   Feed Refiner for LinkedIn — Popup controller (popup.js)
    ---------------------------------------------------------------------
    - Loads persisted state and reflects it in the UI.
    - On any change: writes to chrome.storage.local and broadcasts a live
@@ -18,11 +18,18 @@
     hideRight: false,
     hidePromoted: false,
     hideVanity: false,
-    killMessaging: false,
+    hideJobs: false,
+    hideComposer: false,
+    aiDetector: false,
+    spamDetector: false,
+    commentSilencer: false,
+    tldrSummarizer: true,
+    timeBudgetEnabled: false,
+    dailyPostLimit: 30,
   };
 
   // Selecting a preset seeds sensible sidebar defaults for that layout.
-  // De-clutter toggles (promoted/vanity/messaging) are preserved.
+  // De-clutter toggles (promoted/vanity/jobs/composer) are preserved.
   const PRESET_SEEDS = {
     zen: { hideLeft: true, hideRight: true },
     executive: { hideLeft: false, hideRight: true },
@@ -35,6 +42,7 @@
   const toggles = Array.from(
     document.querySelectorAll('.toggle-list input[type="checkbox"]')
   );
+  const limitInput = document.getElementById('dailyPostLimit');
   const statusEl = document.getElementById('status');
 
   /* ----------------------- Rendering ----------------------- */
@@ -46,6 +54,7 @@
     toggles.forEach((input) => {
       input.checked = !!state[input.dataset.key];
     });
+    if (limitInput) limitInput.value = state.dailyPostLimit;
   }
 
   let statusTimer;
@@ -100,10 +109,63 @@
     });
   });
 
+  if (limitInput) {
+    const commitLimit = () => {
+      let n = parseInt(limitInput.value, 10);
+      if (isNaN(n)) n = DEFAULT_STATE.dailyPostLimit;
+      n = Math.min(999, Math.max(1, n));
+      limitInput.value = n;
+      if (n === state.dailyPostLimit) return;
+      state = { ...state, dailyPostLimit: n };
+      persistAndBroadcast();
+    };
+    limitInput.addEventListener('change', commitLimit);
+    limitInput.addEventListener('blur', commitLimit);
+  }
+
+  /* -------------- Time Budget counter (reset) --------------- */
+  const BUDGET_KEY = 'lbfBudget';
+  const budgetCountEl = document.getElementById('budgetCount');
+  const resetBtn = document.getElementById('resetCounter');
+
+  function todayStr() {
+    const d = new Date();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+
+  // Reflect today's live post count in the popup.
+  function renderCount() {
+    if (!budgetCountEl) return;
+    chrome.storage.local.get(BUDGET_KEY, (result) => {
+      const b = result && result[BUDGET_KEY];
+      const fresh = b && b.date === todayStr();
+      budgetCountEl.textContent = fresh ? Number(b.count) || 0 : 0;
+    });
+  }
+
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      // Zero today's counter (and any override bonus) so counting starts fresh.
+      const fresh = { date: todayStr(), count: 0, bonus: 0 };
+      chrome.storage.local.set({ [BUDGET_KEY]: fresh }, () => {
+        renderCount();
+        flashStatus('Counter reset');
+      });
+    });
+  }
+
+  // Keep the displayed count in sync if the content script updates it.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[BUDGET_KEY]) renderCount();
+  });
+
   /* ----------------------- Init ---------------------------- */
   chrome.storage.local.get(STORAGE_KEY, (result) => {
     const saved = (result && result[STORAGE_KEY]) || {};
     state = { ...DEFAULT_STATE, ...saved };
     render();
   });
+  renderCount();
 })();

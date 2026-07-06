@@ -1,5 +1,5 @@
 /* =====================================================================
-   LinkedIn Beautifier — Design System (styles.css)
+   Feed Refiner for LinkedIn — Design System (styles.css)
    ---------------------------------------------------------------------
    Architecture: "Preset + Modifier"
 
@@ -13,7 +13,6 @@
      [data-hide-right]     -> right sidebar visibility
      [data-hide-promoted]  -> sponsored posts + inline/sidebar ad widgets
      [data-hide-vanity]    -> reaction / comment / repost counts
-     [data-kill-messaging] -> floating messaging tray
 
    Resilient structural anchors (see content.js for the full mapping):
      aside[aria-label="Sidebar"]          -> Left rail (profile/nav)
@@ -56,17 +55,21 @@ body[data-hide-promoted="true"] [data-lbf-ad-widget] {
   display: none !important;
 }
 
+/* Re-center the feed when a sidebar is hidden, so no dead space is left
+   behind. Zen/Executive already center themselves; this covers Classic
+   (and any mode) whenever the left or right rail is toggled off. */
+body[data-hide-left="true"] main#workspace div:has(> aside[aria-label="Sidebar"]),
+body[data-hide-right="true"] main#workspace div:has(> aside[aria-label="Sidebar"]) {
+  display: flex !important;
+  justify-content: center !important;
+}
+
 /* Hide vanity metrics unless the post is hovered */
 body[data-hide-vanity="true"] [data-lbf-vanity] {
   visibility: hidden !important;
 }
 body[data-hide-vanity="true"] [data-lbf-post]:hover [data-lbf-vanity] {
   visibility: visible !important;
-}
-
-/* Kill the floating messaging tray (bottom-right overlay) */
-body[data-kill-messaging="true"] [data-lbf-messaging] {
-  display: none !important;
 }
 
 /* ---------------------------------------------------------------------
@@ -91,10 +94,6 @@ body.mode-zen [data-lbf-post] {
   font-size: 15.5px !important;
   line-height: 1.65 !important;
   letter-spacing: 0.1px !important;
-}
-body.mode-zen [data-lbf-post] [data-testid="expandable-text-box"] {
-  font-size: 16px !important;
-  line-height: 1.7 !important;
 }
 
 /* Calm, unified card surface */
@@ -148,14 +147,28 @@ body.mode-executive [data-lbf-post] [data-testid="expandable-text-box"] {
   -webkit-line-clamp: 4 !important;
   -webkit-box-orient: vertical !important;
   overflow: hidden !important;
-  font-size: 13px !important;
-  line-height: 1.4 !important;
 }
 
-/* Shrink heavy media so text dominates */
+/* Media: cap height AND collapse the wrapper's reserved aspect-ratio box.
+   LinkedIn sets an inline `aspect-ratio` on the media <div>/<a>/<figure>,
+   which reserves the image's full (often tall) height. Clamping only the
+   <img> left that reserved space behind as an empty white gap, so we also
+   neutralise the aspect-ratio and clip the container, then crop the image
+   cleanly with object-fit so cards stay compact with no dead space. */
+body.mode-executive [data-lbf-post] [style*="aspect-ratio"] {
+  aspect-ratio: auto !important;
+  max-height: 240px !important;
+  overflow: hidden !important;
+}
+body.mode-executive [data-lbf-post] [style*="aspect-ratio"] img {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 240px !important;
+  object-fit: cover !important;
+  object-position: top !important;
+}
 body.mode-executive [data-lbf-post] video,
-body.mode-executive [data-lbf-post] .video-js,
-body.mode-executive [data-lbf-post] img[fetchpriority] {
+body.mode-executive [data-lbf-post] .video-js {
   max-height: 240px !important;
 }
 
@@ -175,10 +188,6 @@ body.mode-classic [data-lbf-post] {
   margin-bottom: var(--lbf-gap) !important;
   border: 1px solid rgba(0, 0, 0, 0.06) !important;
 }
-body.mode-classic [data-lbf-post] [data-testid="expandable-text-box"] {
-  font-size: 14.5px !important;
-  line-height: 1.55 !important;
-}
 body.mode-classic aside[aria-label="Sidebar"] > *,
 body.mode-classic aside[aria-label="Aside"] > * {
   border-radius: var(--lbf-radius) !important;
@@ -189,4 +198,472 @@ body.mode-classic aside[aria-label="Aside"] > * {
    --------------------------------------------------------------------- */
 [data-lbf-post] {
   transition: box-shadow 0.15s ease, transform 0.15s ease !important;
+}
+
+/* Hide the "Jobs recommended for you" carousel module */
+body[data-hide-jobs="true"] [data-lbf-jobs] {
+  display: none !important;
+}
+
+/* Hide the "Start a post" composer box */
+body[data-hide-composer="true"] [data-lbf-composer] {
+  display: none !important;
+}
+
+/* =====================================================================
+   AI CONTENT DETECTOR  —  injected pill badge + hover tooltip
+   ---------------------------------------------------------------------
+   content.js appends <span.ai-detected-tag> to flagged post cards. The
+   card is made a positioning context so the badge can sit neatly in the
+   top-right of the header, clear of LinkedIn's native ⋯ / ✕ controls.
+   ===================================================================== */
+[data-lbf-badged="true"] {
+  position: relative !important;
+}
+
+/* Row that holds one or both detector pills, side-by-side. */
+.lbf-badge-row {
+  position: absolute;
+  top: 12px;
+  right: 96px; /* clears the native ⋯ and ✕ control cluster */
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-detected-tag {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px 4px 9px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  color: #9a3412;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 243, 238, 0.96),
+    rgba(254, 226, 214, 0.96)
+  );
+  border: 1px solid rgba(214, 92, 62, 0.32);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(190, 60, 40, 0.12),
+    0 2px 8px rgba(190, 60, 40, 0.08);
+  -webkit-backdrop-filter: saturate(140%) blur(2px);
+  backdrop-filter: saturate(140%) blur(2px);
+  cursor: help;
+  user-select: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.ai-detected-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(190, 60, 40, 0.18),
+    0 8px 18px rgba(190, 60, 40, 0.12);
+}
+.ai-detected-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Confidence tiers — subtle colour shift from calm amber to firm red. */
+.ai-detected-tag.ai-conf-low {
+  color: #92700e;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 251, 235, 0.96),
+    rgba(254, 243, 199, 0.96)
+  );
+  border-color: rgba(202, 158, 40, 0.32);
+}
+.ai-detected-tag.ai-conf-high {
+  color: #a01523;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 236, 236, 0.97),
+    rgba(254, 205, 205, 0.97)
+  );
+  border-color: rgba(214, 62, 62, 0.4);
+}
+
+/* Floating tooltip listing the specific matches (pure CSS, hover-driven). */
+.ai-detected-tip {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  min-width: 190px;
+  max-width: 290px;
+  padding: 9px 11px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: normal;
+  white-space: normal;
+  text-align: left;
+  color: #f4f6fb;
+  background: #1f2430;
+  border-radius: 9px;
+  box-shadow: 0 8px 28px rgba(15, 20, 30, 0.28);
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  z-index: 30;
+}
+.ai-detected-tip::after {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  right: 18px;
+  border: 6px solid transparent;
+  border-bottom-color: #1f2430;
+}
+.ai-detected-tag:hover .ai-detected-tip,
+.ai-detected-tag:focus-within .ai-detected-tip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* =====================================================================
+   SPAM / ENGAGEMENT-BAIT DETECTOR  —  injected pill badge + tooltip
+   ---------------------------------------------------------------------
+   Same anatomy as the AI badge but a distinct indigo/violet palette so the
+   two categories are instantly tellable apart. Shares the .lbf-badge-row
+   container, so a post flagged by both shows two pills side-by-side.
+   ===================================================================== */
+.spam-detected-tag {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px 4px 9px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  color: #3730a3;
+  background: linear-gradient(
+    180deg,
+    rgba(238, 242, 255, 0.96),
+    rgba(224, 231, 255, 0.96)
+  );
+  border: 1px solid rgba(99, 102, 241, 0.34);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(79, 70, 229, 0.12),
+    0 2px 8px rgba(79, 70, 229, 0.08);
+  -webkit-backdrop-filter: saturate(140%) blur(2px);
+  backdrop-filter: saturate(140%) blur(2px);
+  cursor: help;
+  user-select: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.spam-detected-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(79, 70, 229, 0.18),
+    0 8px 18px rgba(79, 70, 229, 0.12);
+}
+.spam-detected-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Confidence tiers — indigo → deeper violet as confidence rises. */
+.spam-detected-tag.spam-conf-high {
+  color: #6b21a8;
+  background: linear-gradient(
+    180deg,
+    rgba(250, 245, 255, 0.97),
+    rgba(233, 213, 255, 0.97)
+  );
+  border-color: rgba(147, 51, 234, 0.4);
+}
+
+/* Floating tooltip listing the specific spam signals. */
+.spam-detected-tip {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  min-width: 190px;
+  max-width: 290px;
+  padding: 9px 11px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: normal;
+  white-space: normal;
+  text-align: left;
+  color: #f4f6fb;
+  background: #1f2430;
+  border-radius: 9px;
+  box-shadow: 0 8px 28px rgba(15, 20, 30, 0.28);
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  z-index: 30;
+}
+.spam-detected-tip::after {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  right: 18px;
+  border: 6px solid transparent;
+  border-bottom-color: #1f2430;
+}
+.spam-detected-tag:hover .spam-detected-tip,
+.spam-detected-tag:focus-within .spam-detected-tip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* =====================================================================
+   ENGAGEMENT-POD COMMENT SILENCER  —  dim low-signal chatter
+   ---------------------------------------------------------------------
+   content.js adds .silenced-comment to canned "Spot on! / Great insights,
+   thanks for sharing!" comments. They fade back to 25% opacity and shrink
+   slightly so genuine discussion stands out — but stay in place and gently
+   restore to full focus on hover, so nothing is ever truly hidden.
+   ===================================================================== */
+.silenced-comment {
+  opacity: 0.25;
+  transform: scale(0.97);
+  transform-origin: left center;
+  filter: saturate(0.6);
+  transition: opacity 0.35s ease, transform 0.35s ease, filter 0.35s ease;
+  will-change: opacity, transform;
+}
+.silenced-comment:hover,
+.silenced-comment:focus-within {
+  opacity: 1;
+  transform: scale(1);
+  filter: none;
+}
+
+/* =====================================================================
+   ONE-CLICK LOCAL TL;DR SUMMARIZER  —  toggle button + premium callout
+   ---------------------------------------------------------------------
+   content.js injects a ".tldr-toggle-btn" after long post bodies and, on
+   click, collapses the original paragraph and reveals a ".tldr-summary-box"
+   holding the 2-sentence local summary as bullet points. Amber accent to
+   echo the ⚡ energy; smooth height/opacity transitions for a native feel.
+   ===================================================================== */
+.tldr-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 2px;
+  padding: 5px 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  color: #92580a;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 251, 235, 0.95),
+    rgba(254, 243, 199, 0.95)
+  );
+  border: 1px solid rgba(217, 119, 6, 0.32);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(180, 83, 9, 0.12);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+.tldr-toggle-btn:hover {
+  color: #7c470a;
+  background: linear-gradient(
+    180deg,
+    rgba(254, 243, 199, 0.98),
+    rgba(253, 230, 138, 0.98)
+  );
+  border-color: rgba(217, 119, 6, 0.5);
+  box-shadow: 0 2px 6px rgba(180, 83, 9, 0.18);
+  transform: translateY(-1px);
+}
+.tldr-toggle-btn:active {
+  transform: translateY(0);
+}
+.tldr-toggle-btn:focus-visible {
+  outline: 2px solid rgba(217, 119, 6, 0.6);
+  outline-offset: 2px;
+}
+/* When a summary is showing, the button reads "Show Original" — cool it to a
+   neutral gray so it clearly signals a "revert" action. */
+.tldr-toggle-btn.tldr-active {
+  color: #475569;
+  background: linear-gradient(
+    180deg,
+    rgba(248, 250, 252, 0.96),
+    rgba(241, 245, 249, 0.96)
+  );
+  border-color: rgba(100, 116, 139, 0.32);
+  box-shadow: 0 1px 2px rgba(51, 65, 85, 0.1);
+}
+.tldr-toggle-btn.tldr-active:hover {
+  color: #334155;
+  border-color: rgba(100, 116, 139, 0.5);
+}
+
+.tldr-summary-box {
+  margin: 8px 0 12px;
+  padding: 14px 16px 14px 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  color: #3f3320;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 252, 244, 0.96),
+    rgba(255, 249, 232, 0.96)
+  );
+  border: 1px solid rgba(217, 119, 6, 0.18);
+  border-left: 4px solid #d97706;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(120, 80, 10, 0.06),
+    0 6px 18px rgba(120, 80, 10, 0.05);
+  transition: all 0.3s ease;
+}
+.tldr-summary-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #b45309;
+}
+.tldr-summary-list {
+  margin: 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+}
+.tldr-summary-list li {
+  position: relative;
+  margin: 0 0 8px;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.62;
+  color: #2f2a20;
+}
+.tldr-summary-list li:last-child {
+  margin-bottom: 0;
+}
+.tldr-summary-list li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.62em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.14);
+}
+
+/* =====================================================================
+   TIME BUDGETER  —  minimalist "take a break" overlay
+   ---------------------------------------------------------------------
+   content.js injects #lbf-budget-overlay as position:fixed and locks its
+   left/width to the feed column's rect (top:0 → bottom:0). A calm, frosted
+   full-column curtain that gently interrupts endless scrolling.
+   ===================================================================== */
+.lbf-budget-overlay {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(244, 246, 249, 0.78);
+  -webkit-backdrop-filter: saturate(120%) blur(10px);
+  backdrop-filter: saturate(120%) blur(10px);
+  animation: lbf-budget-fade 0.25s ease both;
+}
+@keyframes lbf-budget-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.lbf-budget-card {
+  max-width: 340px;
+  width: 100%;
+  padding: 34px 28px 30px;
+  text-align: center;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(20, 30, 45, 0.16),
+    0 2px 8px rgba(20, 30, 45, 0.08);
+  animation: lbf-budget-rise 0.3s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+@keyframes lbf-budget-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.lbf-budget-icon {
+  font-size: 40px;
+  line-height: 1;
+  margin-bottom: 14px;
+}
+.lbf-budget-title {
+  margin: 0 0 8px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: #1d2226;
+}
+.lbf-budget-sub {
+  margin: 0 0 22px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #5b6b7b;
+}
+.lbf-budget-override {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  padding: 9px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0a66c2;
+  background: #eaf3fc;
+  border-radius: 999px;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.lbf-budget-override:hover {
+  background: #dcecfa;
+  transform: translateY(-1px);
+}
+.lbf-budget-override:active {
+  transform: translateY(0);
 }

@@ -1,5 +1,5 @@
 /* =====================================================================
-   LinkedIn Beautifier — Runtime Controller (content.js)
+   Feed Refiner for LinkedIn — Runtime Controller (content.js)
    ---------------------------------------------------------------------
    Responsibilities
      1. Read persisted state from chrome.storage.local and apply it to
@@ -22,7 +22,14 @@
     hideRight: false,
     hidePromoted: false,
     hideVanity: false,
-    killMessaging: false,
+    hideJobs: false,
+    hideComposer: false,
+    aiDetector: false,
+    spamDetector: false,
+    commentSilencer: false,
+    tldrSummarizer: true,
+    timeBudgetEnabled: false,
+    dailyPostLimit: 30,
   };
 
   const MODES = ['zen', 'executive', 'classic'];
@@ -40,9 +47,6 @@
     // Inline / sidebar ad iframe is stably titled + component-keyed.
     adWidget:
       'iframe[title="advertisement"], [componentkey="MainFeedDesktopNav_feed_ad"]',
-    // Floating messaging tray (not in feed snippets — use LinkedIn's stable ids).
-    messaging:
-      '#msg-overlay, .msg-overlay-container, aside[aria-label^="Messaging" i]',
   };
 
   const POST_HEADING_TEXT = 'feed post';
@@ -51,13 +55,291 @@
   const VANITY_SUMMARY_RE =
     /^\s*[\d.,]+\s*(reaction|reactions|comment|comments|repost|reposts|impression|impressions)\b/i;
 
+  /* -------------------------------------------------------------------
+     LOCAL HEURISTIC "AI CONTENT" DETECTOR  (v2 — family-based scoring)
+     ---------------------------------------------------------------------
+     100% on-device, no network. Rather than a flat additive count, signals
+     are grouped into 5 independent FAMILIES. Each family's contribution is
+     capped so no single dimension can dominate, human/casual signals
+     subtract, and a post is only flagged when it clears the score threshold
+     AND fires in at least MIN_FAMILIES distinct families. Requiring
+     corroboration across families is what keeps false-positives low: one
+     buzzword or a staccato layout alone can never trip the badge.
+
+     Families:  lexical · structure · rhetoric · engagement · typography
+     Output:    { isAI, score, confidence, families, matches }
+     ------------------------------------------------------------------- */
+
+  // FAMILY 1 — LEXICAL. Two tiers so precision stays high: STRONG tells are
+  // phrases humans rarely write unprompted (counted double toward the capped
+  // lexical family); MODERATE tells are LLM-favoured but occasionally human
+  // (counted single, so they need corroboration). Everyday words like
+  // "amazing"/"important" are excluded entirely.
+  const AI_PHRASES_STRONG = [
+    'delve into',
+    'delve',
+    'a testament to',
+    'testament to',
+    'rich tapestry',
+    'tapestry',
+    'in the realm of',
+    'navigating the',
+    'ever-evolving',
+    'ever-changing',
+    "today's fast-paced world",
+    'in a world where',
+    'underscores the',
+    'underscore',
+    'a beacon of',
+    'paradigm shift',
+    "it's worth noting",
+    'it is worth noting',
+    'needle-mover',
+    'move the needle',
+    'unlock the power',
+    'unlock the potential',
+    'harness the power',
+    'plays a pivotal role',
+    'plays a crucial role',
+    'a myriad of',
+    'symphony of',
+    'stands as a testament',
+    'game-changer',
+    'transformative power',
+  ];
+
+  const AI_PHRASES_MODERATE = [
+    'leverage',
+    'seamless',
+    'seamlessly',
+    'landscape',
+    'myriad',
+    'beacon',
+    'paradigm',
+    'synergy',
+    'holistic',
+    'multifaceted',
+    'nuanced',
+    'intricate',
+    'cutting-edge',
+    'state-of-the-art',
+    'foster',
+    'cultivate',
+    'elevate',
+    'empower',
+    'streamline',
+    'resonate',
+    'when it comes to',
+    'at the end of the day',
+    'the key takeaway',
+    'boils down to',
+    'low-hanging fruit',
+    "here's the thing",
+  ];
+
+  // Formal cohesion words LLMs sprinkle far more than people do.
+  const AI_TRANSITIONS = [
+    'furthermore',
+    'moreover',
+    'additionally',
+    'consequently',
+    'therefore',
+    'nevertheless',
+    'nonetheless',
+    'notably',
+    'importantly',
+    'subsequently',
+    'ultimately',
+    'in conclusion',
+    'to summarize',
+    'in summary',
+    'as a result',
+    'first and foremost',
+  ];
+
+  // FAMILY 2 — RHETORIC (part a): formulaic opener "hooks".
+  const AI_HOOKS = [
+    'unpopular opinion',
+    'controversial opinion',
+    'hot take',
+    'plot twist',
+    'let me be honest',
+    "i'll be honest",
+    "let's be real",
+    'hard truth',
+    'the hard truth',
+    'the harsh reality',
+    'the truth is',
+    'let me explain',
+    'let that sink in',
+    'read that again',
+    'nobody talks about',
+    'no one talks about',
+    'make no mistake',
+    "here's the deal",
+    "here's why",
+    "here's what",
+    "here's how",
+    "here's the thing nobody",
+    'ask yourself',
+  ];
+
+  // FAMILY 2 — RHETORIC (part b): colon-led "label" lines LLMs love, plus
+  // the one-line teaser-fragment pattern ("The result?").
+  const AI_LABEL_LINES = [
+    'the result:',
+    'the lesson:',
+    'the takeaway:',
+    'my takeaway:',
+    'bottom line:',
+    'lesson learned:',
+    'the point:',
+    'the reality:',
+    'remember:',
+    'pro tip:',
+    'the result?',
+    'the best part?',
+    'the catch?',
+    'the kicker?',
+    'the takeaway?',
+    'the secret?',
+    'the reason?',
+  ];
+
+  // FAMILY 3 — ENGAGEMENT bait: CTAs / follow-bait closers.
+  const AI_CLOSERS = [
+    'what are your thoughts',
+    'drop a comment',
+    'what did i miss',
+    'let me know below',
+    'let me know in the comments',
+    'thoughts?',
+    'agree?',
+    'am i wrong',
+    'who else',
+    'tag someone',
+    'share this post',
+    'repost this',
+    'follow for more',
+    'follow me for',
+    'what would you add',
+    'sound off below',
+    'like and share',
+    'save this post',
+    'comment below',
+  ];
+
+  // FAMILY 4 — human / casual markers that LOWER the score (real people).
+  const HUMAN_MARKERS_RE =
+    /\b(lol|lmao|lmfao|rofl|tbh|ngl|idk|imho|imo|smh|omg|omfg|wtf|haha+|hehe+|gonna|wanna|gotta|kinda|sorta|dunno|yeah|yep|yup|nah|nope|oops|ugh|welp|meh|bruh|fr|frfr|ikr|btw|af|damn|dang|gotcha)\b/i;
+
+  // Line begins with an emoji.
+  const EMOJI_START_RE = /^\p{Extended_Pictographic}/u;
+  // Line begins with an emoji OR a common bullet glyph.
+  const BULLET_START_RE =
+    /^\s*(?:[\u2022\u2023\u25E6\u2043\u2219•▪◦‣·]|[-*]\s|\u2705|\u274C|\u2714|\u2728|\u27A1|\u2B50|\uD83D[\uDC49\uDD39\uDD38\uDCCC]|\p{Extended_Pictographic})/u;
+
+  // Scoring configuration.
+  const FAMILY_CAP = { lexical: 3, structure: 3, rhetoric: 3, engagement: 3, typography: 2 };
+  const AI_SCORE_THRESHOLD = 3; // minimum total score to flag
+  const MIN_FAMILIES = 2; // minimum distinct families that must fire
+
+  /* -------------------------------------------------------------------
+     LOCAL "SPAM / ENGAGEMENT-BAIT" DETECTOR
+     ---------------------------------------------------------------------
+     A separate, independent classifier from the AI detector. It targets
+     low-quality attention-grabbing spam — emoji storms, hashtag stuffing,
+     shouting caps, and follow/DM/giveaway bait — which is a different
+     category from polished AI prose. Family-capped like the AI model; a
+     single strong family (e.g. an emoji storm) can flag on its own, but
+     trivial/celebratory emoji use stays below the bar.
+     ------------------------------------------------------------------- */
+  // Any emoji pictograph OR regional-indicator (flag) codepoint.
+  const SPAM_EMOJI_RE = /[\p{Extended_Pictographic}\p{Regional_Indicator}]/gu;
+  // 3+ emoji/flags in a row (allowing variation-selector / ZWJ joiners).
+  const SPAM_EMOJI_CLUSTER_RE =
+    /(?:[\p{Extended_Pictographic}\p{Regional_Indicator}][\uFE0F\u200D]?){3,}/u;
+
+  // Genuine announcement / celebration language — softens the emoji signal so
+  // "Thrilled to share our news 🎉🎉🎉" is not mistaken for spam.
+  const CELEBRATION_RE =
+    /\b(excited|thrilled|delighted|honou?red|proud|humbled|grateful|thankful|pleased|happy)\s+to\b|\b(congratulations|congrats|welcome aboard|new (job|role|position|chapter)|just (joined|started)|announce|announcing)\b/i;
+
+  // Common acronyms that are NOT shouting — excluded from the caps signal so a
+  // normal tech/business post ("CEO", "API", "AWS", "SQL") isn't flagged.
+  const SPAM_ACRONYMS = new Set([
+    'CEO', 'CTO', 'CFO', 'COO', 'CMO', 'CIO', 'API', 'SDK', 'AWS', 'GCP',
+    'SQL', 'HTML', 'CSS', 'SAAS', 'PAAS', 'NLP', 'ROI', 'KPI', 'OKR', 'B2B',
+    'B2C', 'SEO', 'SEM', 'USA', 'USD', 'UAE', 'NASA', 'GDP', 'IPO', 'ESG',
+    'NFT', 'DAO', 'IOT', 'GPU', 'CPU', 'RAM', 'SSD', 'USB', 'PDF', 'URL',
+    'FAQ', 'CTA', 'ICYMI', 'TLDR', 'LGBTQ', 'NGO', 'MVP', 'POC', 'SLA',
+    'NDA', 'PHD', 'MBA', 'CAGR', 'ARR', 'MRR',
+  ]);
+
+  // Shortened-link domains strongly associated with spam.
+  const SPAM_SHORTENERS =
+    /\b(bit\.ly|tinyurl\.com|cutt\.ly|rebrand\.ly|goo\.gl|ow\.ly|buff\.ly|rb\.gy|is\.gd|shorturl)\b/i;
+
+  // Spammy call-to-action / bait phrases.
+  const SPAM_BAIT = [
+    // DM / contact bait
+    'dm me', 'dm for', 'dm to', 'send me a dm', 'send a dm', 'inbox me',
+    'pm me', 'message me', 'text me', 'whatsapp me', 'contact me for',
+    'dm for details', 'dm for price', 'dm for collab', 'dm to collab',
+    'dm for the link',
+    // link bait
+    'link in comments', 'link in the comments', 'link in first comment',
+    'link in bio', 'link below', 'link in profile', 'check my profile',
+    'check the link', 'click the link', 'click here', 'click below',
+    'swipe up', 'more in the comments', 'check the comments',
+    // follow / engagement bait
+    'follow for follow', 'f4f', 'like for like', 'l4l', 'follow back',
+    'follow me', 'follow for more', 'hit the follow', 'hit follow',
+    'turn on notifications', 'ring the bell', 'connect with me',
+    'tag a friend', 'tag your', 'tag 3', 'tag 5', 'tag someone who',
+    'double tap', 'smash that', 'like if', 'share if', 'repost if',
+    'repost to', 'comment below', 'comment "yes"', "comment 'yes'",
+    'comment yes', 'comment interested', 'type yes', 'who wants',
+    'raise your hand', 'save this post', 'save for later',
+    'save this for later', 'bookmark this',
+    // money / offer bait
+    'giveaway', 'limited time', 'act now', 'hurry', "don't miss",
+    'free gift', 'claim your', 'earn money', 'make money', 'work from home',
+    'passive income', 'financial freedom', 'guaranteed', 'no experience needed',
+    'apply now', 'register now', 'enroll now', 'book now', 'buy now',
+    'order now', 'shop now', 'use code', 'promo code', 'discount code',
+    'limited slots', 'limited seats', 'spots left', 'seats left',
+    'only today', '100% free', 'subscribe now', 'join now', 'sign up now',
+  ];
+
+  // Per-family score caps so no single dimension can run away.
+  const SPAM_FAMILY_CAP = { emoji: 3, hashtag: 2, caps: 2, punct: 1, bait: 4 };
+  const SPAM_SCORE_THRESHOLD = 3; // minimum total score to flag
+
+
   let currentState = { ...DEFAULT_STATE };
 
   /* ===================================================================
      STATE APPLICATION
      =================================================================== */
   function applyState(state) {
+    const prev = currentState;
     currentState = { ...DEFAULT_STATE, ...state };
+
+    // The popup's "Daily Post Limit" is authoritative: if the user changes
+    // it — or re-enables the feature — any accumulated override bonus is
+    // cleared so the effective limit is exactly the number they set.
+    // (Previously the +5 overrides persisted all day and silently inflated
+    // the limit, making the break screen appear ~bonus posts too late.)
+    const limitChanged =
+      Number(prev.dailyPostLimit) !== Number(currentState.dailyPostLimit);
+    const justEnabled =
+      !prev.timeBudgetEnabled && currentState.timeBudgetEnabled;
+    if ((limitChanged || justEnabled) && budget.bonus) {
+      budget.bonus = 0;
+      saveBudget();
+    }
+
     const body = document.body;
     if (!body) return; // Will be retried once <body> exists.
 
@@ -73,10 +355,22 @@
     body.setAttribute('data-hide-right', String(!!currentState.hideRight));
     body.setAttribute('data-hide-promoted', String(!!currentState.hidePromoted));
     body.setAttribute('data-hide-vanity', String(!!currentState.hideVanity));
-    body.setAttribute('data-kill-messaging', String(!!currentState.killMessaging));
+    body.setAttribute('data-hide-jobs', String(!!currentState.hideJobs));
+    body.setAttribute('data-hide-composer', String(!!currentState.hideComposer));
+    body.setAttribute('data-ai-detector', String(!!currentState.aiDetector));
+    body.setAttribute('data-spam-detector', String(!!currentState.spamDetector));
+    body.setAttribute(
+      'data-comment-silencer',
+      String(!!currentState.commentSilencer)
+    );
+    body.setAttribute(
+      'data-tldr-summarizer',
+      String(!!currentState.tldrSummarizer)
+    );
 
-    // Re-tag so newly-relevant nodes (e.g. messaging tray) get their hooks.
+    // Re-tag so newly-relevant nodes get their hooks.
     tagFeed();
+    enforceBudget();
   }
 
   /* ===================================================================
@@ -112,6 +406,16 @@
         root.dataset.lbfSponsored = 'true';
       }
 
+      // "Jobs recommended for you" carousel module.
+      if (isJobsModule(root)) {
+        root.dataset.lbfJobs = 'true';
+      }
+
+      // Time Budget: count this post (idle-path fallback). Dedup is by
+      // componentkey, so a post already counted synchronously on mount is
+      // never double-counted here. Ads / jobs are excluded inside.
+      maybeCountRoot(root);
+
       tagVanityWithin(root);
     });
   }
@@ -124,6 +428,20 @@
       if (t === PROMOTED_TEXT) return true;
       // Guard against long paragraphs that merely contain the word.
       if (t.length <= 12 && t.startsWith(PROMOTED_TEXT)) return true;
+    }
+    return false;
+  }
+
+  // Detect the "Jobs recommended for you" module: a feed post whose header
+  // text matches, and which wraps a job carousel.
+  const JOBS_HEADING_RE =
+    /^(jobs?\s+recommended\s+for\s+you|recommended\s+jobs?\s+for\s+you|top\s+job\s+picks\s+for\s+you)/i;
+  function isJobsModule(postRoot) {
+    const nodes = postRoot.querySelectorAll('h2 + * span, p span, p, h3, span');
+    for (const el of nodes) {
+      if (el.children.length) continue; // text leaf only
+      const t = (el.textContent || '').trim();
+      if (t.length <= 48 && JOBS_HEADING_RE.test(t)) return true;
     }
     return false;
   }
@@ -173,18 +491,1209 @@
     });
   }
 
-  function tagMessaging() {
-    document.querySelectorAll(SEL.messaging).forEach((node) => {
-      if (node.dataset.lbfMessaging !== 'true') {
-        node.dataset.lbfMessaging = 'true';
+  // Tag the "Start a post" composer box. Anchor on the stable
+  // aria-label / sharebox href, then climb to the card that also contains
+  // the media action buttons (Video / Photo / Write article).
+  function tagComposer() {
+    const anchor = document.querySelector(
+      '[aria-label="Start a post" i], a[href="/preload/sharebox/"]'
+    );
+    if (!anchor) return;
+    let el = anchor;
+    let root = null;
+    for (let i = 0; i < 8 && el.parentElement; i++) {
+      el = el.parentElement;
+      if (
+        el.querySelector(
+          'a[href*="detourType"], a[href="/article/new/"]'
+        )
+      ) {
+        root = el;
+        break;
       }
-    });
+    }
+    root = root || anchor.closest('[componentkey]') || anchor;
+    if (root && root.dataset.lbfComposer !== 'true') {
+      root.dataset.lbfComposer = 'true';
+    }
+  }
+
+  /* ===================================================================
+     AI CONTENT DETECTION  (local heuristic scoring + badge injection)
+     =================================================================== */
+
+  // Word-boundary match for plain words; substring for multi-word / hyphenated
+  // / apostrophised phrases (where \b behaves poorly).
+  function phraseHit(lowerText, phrase) {
+    if (/[^a-z0-9]/.test(phrase)) return lowerText.includes(phrase);
+    return new RegExp('\\b' + phrase + '\\b').test(lowerText);
+  }
+
+  // Boundary-guarded match for closers so e.g. "disagree?" doesn't trip "agree?".
+  function closerHit(lowerText, phrase) {
+    const esc = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('(^|[^a-z])' + esc).test(lowerText);
+  }
+
+  /**
+   * Heuristically score a post's text for "AI-generated" tells (v2).
+   * @param {string} postText
+   * @returns {{ isAI: boolean, score: number, confidence: string,
+   *             families: string[], matches: string[] }}
+   *
+   * Signals are grouped into 5 families, each capped (see FAMILY_CAP) so no
+   * single dimension dominates. Human/casual markers subtract. A post is
+   * flagged only when: total score >= AI_SCORE_THRESHOLD (3) AND at least
+   * MIN_FAMILIES (2) distinct families fired — corroboration across
+   * independent dimensions is what keeps false-positives low.
+   *
+   *   lexical    — distinctive buzzwords/clichés            (cap 3)
+   *   structure  — emoji/bullet lists, staccato "broetry"   (cap 3)
+   *   rhetoric   — hooks, antithesis, rule-of-three,
+   *                colon label-lines, rhetorical questions   (cap 3)
+   *   engagement — CTA closers + hashtag stuffing            (cap 3)
+   *   typography — em-dash overuse, curly-quote formality    (cap 2)
+   *   (human markers subtract from the total)
+   *
+   * Confidence: High (>=6 & >=3 families) · Medium (>=4 & >=2) · Low (>=3 & >=2)
+   */
+  function analyzePostForAI(postText) {
+    const raw = String(postText || '');
+    const text = raw.toLowerCase();
+    const matches = [];
+    const fam = { lexical: 0, structure: 0, rhetoric: 0, engagement: 0, typography: 0 };
+
+    const words = text.split(/\s+/).filter(Boolean);
+    const wordCount = words.length;
+
+    const lines = raw
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    /* ---- FAMILY: LEXICAL — tiered distinctive buzzwords ---- */
+    let strongHits = 0;
+    let moderateHits = 0;
+    for (const p of AI_PHRASES_STRONG) {
+      if (phraseHit(text, p)) {
+        matches.push("'" + p + "'");
+        strongHits++;
+      }
+    }
+    for (const p of AI_PHRASES_MODERATE) {
+      if (phraseHit(text, p)) {
+        matches.push("'" + p + "'");
+        moderateHits++;
+      }
+    }
+    // Strong tells count double; moderate ones single.
+    fam.lexical += strongHits * 2 + moderateHits;
+    // Density kicker: several buzzwords packed into a short post is a strong
+    // tell; the same count spread across a long essay is weaker.
+    const lexHits = strongHits + moderateHits;
+    if (lexHits >= 3 && wordCount > 0 && lexHits / wordCount > 0.03) {
+      fam.lexical += 1;
+      matches.push('Buzzword density');
+    }
+
+    /* ---- FAMILY: STRUCTURE — list/emoji formatting & broetry cadence ---- */
+    // Emoji-led lines (3+ consecutive) — the classic AI "emoji bullets".
+    let run = 0;
+    let maxEmojiRun = 0;
+    for (const l of lines) {
+      if (EMOJI_START_RE.test(l)) maxEmojiRun = Math.max(maxEmojiRun, ++run);
+      else run = 0;
+    }
+    if (maxEmojiRun >= 3) {
+      fam.structure += 2;
+      matches.push('Emoji bullets');
+    }
+    // Bullet-glyph list (3+ lines starting with a bullet/checkmark/arrow).
+    const bulletLines = lines.filter((l) => BULLET_START_RE.test(l)).length;
+    if (bulletLines >= 3 && maxEmojiRun < 3) {
+      fam.structure += 2;
+      matches.push('Bullet-point list');
+    }
+    // Staccato "broetry": many short single-sentence lines / high line count.
+    if (lines.length >= 6) {
+      const shortSingle = lines.filter(
+        (l) => l.length <= 70 && !/[.!?].+[.!?]/.test(l)
+      ).length;
+      if (shortSingle >= 6) {
+        fam.structure += 1;
+        matches.push('Staccato line breaks');
+      }
+    }
+
+    /* ---- FAMILY: RHETORIC — hooks, antithesis, structure words, questions ---- */
+    for (const h of AI_HOOKS) {
+      if (text.includes(h)) {
+        fam.rhetoric += 1;
+        matches.push("'" + h + "'");
+        break; // one hook is enough for the signal
+      }
+    }
+    if (
+      /\bit'?s not (just|about)\b/i.test(raw) ||
+      /\bnot only\b[\s\S]{0,60}\bbut\b/i.test(raw)
+    ) {
+      fam.rhetoric += 1;
+      matches.push('Antithesis phrasing');
+    }
+    if (/\bfirst[,.\s][\s\S]{0,200}\bsecond[,.\s][\s\S]{0,200}\bthird[,.\s]/i.test(raw)) {
+      fam.rhetoric += 1;
+      matches.push('Rule-of-three list');
+    }
+    if (AI_LABEL_LINES.some((lbl) => text.includes(lbl))) {
+      fam.rhetoric += 1;
+      matches.push('Colon label-line');
+    }
+    const questionLines = lines.filter(
+      (l) => l.endsWith('?') && l.length <= 60
+    ).length;
+    if (questionLines >= 2) {
+      fam.rhetoric += 1;
+      matches.push('Rhetorical questions');
+    }
+    // Formal cohesion words (furthermore/moreover/…) — 2+ distinct is a tell.
+    let transHits = 0;
+    for (const t of AI_TRANSITIONS) {
+      if (phraseHit(text, t)) transHits++;
+    }
+    if (transHits >= 2) {
+      fam.rhetoric += 1;
+      matches.push('Formal transitions');
+    }
+
+    /* ---- FAMILY: ENGAGEMENT — CTA closers + hashtag stuffing ---- */
+    let closerHits = 0;
+    for (const c of AI_CLOSERS) {
+      if (closerHit(text, c)) {
+        matches.push("'" + c + "'");
+        closerHits++;
+      }
+    }
+    fam.engagement += closerHits * 2;
+    const hashtags = (raw.match(/(^|\s)#[\p{L}\d_]+/gu) || []).length;
+    if (hashtags >= 5) {
+      fam.engagement += 1;
+      matches.push('Hashtag stuffing');
+    }
+
+    /* ---- FAMILY: TYPOGRAPHY — em-dash overuse + formal "no-contraction" ---- */
+    const emDashes = (raw.match(/—/g) || []).length;
+    if (emDashes >= 3) {
+      fam.typography += 1;
+      matches.push('Em-dash overuse');
+    }
+    // Curly apostrophes/quotes alongside em-dashes = polished LLM typography.
+    if (emDashes >= 1 && /[\u2018\u2019\u201C\u201D]/.test(raw)) {
+      fam.typography += 1;
+      matches.push('Polished typography');
+    }
+
+    // Cap each family, then total.
+    for (const k of Object.keys(fam)) fam[k] = Math.min(fam[k], FAMILY_CAP[k]);
+    let score = Object.values(fam).reduce((a, b) => a + b, 0);
+
+    // Human/casual markers pull the score down (AI rarely writes "lol/ngl").
+    if (HUMAN_MARKERS_RE.test(raw)) {
+      score -= 2;
+      matches.push('(human tone −2)');
+    }
+    // Very short posts have too little signal to judge confidently.
+    if (wordCount < 20) score -= 1;
+
+    const families = Object.keys(fam).filter((k) => fam[k] >= 1);
+    const familyCount = families.length;
+
+    let confidence = 'none';
+    if (score >= 6 && familyCount >= 3) confidence = 'high';
+    else if (score >= 4 && familyCount >= MIN_FAMILIES) confidence = 'medium';
+    else if (score >= AI_SCORE_THRESHOLD && familyCount >= MIN_FAMILIES) confidence = 'low';
+
+    return {
+      isAI: confidence !== 'none',
+      score,
+      confidence,
+      families,
+      matches,
+    };
+  }
+
+  // Shared, absolutely-positioned row that holds the AI and/or spam pills so
+  // they sit side-by-side in the card header without overlapping.
+  function getBadgeRow(root) {
+    let row = root.querySelector(':scope > .lbf-badge-row');
+    if (!row) {
+      row = document.createElement('span');
+      row.className = 'lbf-badge-row';
+      root.dataset.lbfBadged = 'true';
+      root.appendChild(row);
+    }
+    return row;
+  }
+
+  // Inject the pill badge (with hover tooltip) into a flagged post card.
+  function injectAIBadge(root, result) {
+    if (root.dataset.lbfAiFlagged === 'true') return;
+    if (root.querySelector('.ai-detected-tag')) return;
+    root.dataset.lbfAiFlagged = 'true';
+
+    const tag = document.createElement('span');
+    tag.className = 'ai-detected-tag ai-conf-' + (result.confidence || 'low');
+    tag.setAttribute('role', 'note');
+    tag.setAttribute('aria-label', 'Possible AI-generated content');
+
+    const label = document.createElement('span');
+    label.className = 'ai-detected-label';
+    const conf = (result.confidence || 'low');
+    label.textContent =
+      '🤖 Likely AI' + (conf === 'high' ? '' : conf === 'low' ? ' ?' : '');
+    tag.appendChild(label);
+
+    const tip = document.createElement('span');
+    tip.className = 'ai-detected-tip';
+    const uniq = [...new Set(result.matches.filter((m) => !m.startsWith('(')))];
+    const confText =
+      conf.charAt(0).toUpperCase() + conf.slice(1) + ' confidence';
+    tip.textContent =
+      confText +
+      ' · Flagged for: ' +
+      (uniq.join(', ') || 'heuristic signals');
+    tag.appendChild(tip);
+
+    getBadgeRow(root).appendChild(tag);
+  }
+
+  // Sweep every tagged post that hasn't been AI-checked yet. Runs each pass
+  // so posts whose commentary hadn't rendered on first tag get retried.
+  // Gated by the user's aiDetector toggle; when off, any existing badges are
+  // removed and posts are reset so re-enabling re-scans them.
+  function tagAIDetection() {
+    if (!currentState.aiDetector) {
+      document.querySelectorAll('.ai-detected-tag').forEach((el) => el.remove());
+      document
+        .querySelectorAll('[data-lbf-ai-checked], [data-lbf-ai-flagged]')
+        .forEach((el) => {
+          delete el.dataset.lbfAiChecked;
+          delete el.dataset.lbfAiFlagged;
+        });
+      return;
+    }
+    document
+      .querySelectorAll('[data-lbf-post]:not([data-lbf-ai-checked])')
+      .forEach((root) => {
+        const box = root.querySelector('[data-testid="expandable-text-box"]');
+        if (!box) return; // no commentary rendered yet — retry next pass
+        const text = (box.innerText || box.textContent || '').trim();
+        if (!text) return;
+        root.dataset.lbfAiChecked = 'true';
+        const result = analyzePostForAI(text);
+        if (result.isAI) injectAIBadge(root, result);
+      });
+  }
+
+  /**
+   * Heuristically score a post's text for "spam / engagement-bait" tells.
+   * @param {string} postText
+   * @returns {{ isSpam: boolean, score: number, confidence: string,
+   *             families: string[], matches: string[] }}
+   *
+   *   emoji    — emoji/flag storms & repeated clusters   (cap 3)
+   *   hashtag  — hashtag stuffing                         (cap 2)
+   *   caps     — SHOUTING all-caps words                  (cap 2)
+   *   punct    — excessive !!! / ??? punctuation          (cap 1)
+   *   bait     — DM/follow/giveaway CTA phrases           (cap 3)
+   *
+   * Flagged when score >= SPAM_SCORE_THRESHOLD (3). Because emoji spam alone
+   * is a legitimate spam signal, a single family that reaches the bar is
+   * enough; the per-family caps keep casual emoji/hashtag use below it.
+   */
+  function analyzePostForSpam(postText) {
+    const raw = String(postText || '');
+    const text = raw.toLowerCase();
+    const matches = [];
+    const fam = { emoji: 0, hashtag: 0, caps: 0, punct: 0, bait: 0 };
+
+    const words = raw.split(/\s+/).filter(Boolean);
+    const wordCount = words.length;
+    const isCelebration = CELEBRATION_RE.test(raw);
+
+    /* ---- EMOJI storm ---- */
+    const emojiCount = (raw.match(SPAM_EMOJI_RE) || []).length;
+    if (SPAM_EMOJI_CLUSTER_RE.test(raw)) {
+      fam.emoji += 2;
+      matches.push('Emoji clusters');
+    }
+    if (emojiCount >= 10) {
+      fam.emoji += 2;
+      matches.push('Excessive emojis (' + emojiCount + ')');
+    } else if (emojiCount >= 6) {
+      fam.emoji += 1;
+      matches.push('Heavy emoji use (' + emojiCount + ')');
+    }
+    // A genuine celebration rarely earns more than a single emoji point, so
+    // "New role! 🎉🎉🎉" cannot flag on emojis alone.
+    if (isCelebration) fam.emoji = Math.min(fam.emoji, 1);
+
+    /* ---- HASHTAG stuffing ---- */
+    const hashtags = (raw.match(/(^|\s)#[\p{L}\d_]+/gu) || []).length;
+    if (hashtags >= 8) {
+      fam.hashtag += 2;
+      matches.push('Hashtag stuffing (' + hashtags + ')');
+    } else if (hashtags >= 5) {
+      fam.hashtag += 1;
+      matches.push('Hashtag stuffing (' + hashtags + ')');
+    }
+
+    /* ---- SHOUTING caps (real acronyms excluded) ---- */
+    const capsWords = words.filter((w) => {
+      const bare = w.replace(/[^A-Za-z]/g, '');
+      return /^[A-Z]{4,}$/.test(bare) && !SPAM_ACRONYMS.has(bare);
+    }).length;
+    if (wordCount >= 5) {
+      if (capsWords >= 5) {
+        fam.caps += 2;
+        matches.push('Shouting caps');
+      } else if (capsWords >= 3) {
+        fam.caps += 1;
+        matches.push('Shouting caps');
+      }
+    }
+
+    /* ---- EXCESSIVE punctuation / elongation ---- */
+    if (/[!?]{3,}/.test(raw) || (raw.match(/!/g) || []).length >= 6) {
+      fam.punct += 1;
+      matches.push('Excessive punctuation');
+    } else if (/([A-Za-z])\1{3,}/.test(raw)) {
+      fam.punct += 1;
+      matches.push('Elongated words');
+    }
+
+    /* ---- BAIT phrases + shortened links ---- */
+    let baitHits = 0;
+    for (const b of SPAM_BAIT) {
+      if (text.includes(b)) {
+        matches.push("'" + b + "'");
+        baitHits++;
+      }
+    }
+    fam.bait += baitHits * 2;
+    if (SPAM_SHORTENERS.test(raw)) {
+      fam.bait += 1;
+      matches.push('Shortened link');
+    }
+
+    // Cap each family, then total.
+    for (const k of Object.keys(fam)) {
+      fam[k] = Math.min(fam[k], SPAM_FAMILY_CAP[k]);
+    }
+    const score = Object.values(fam).reduce((a, b) => a + b, 0);
+    const families = Object.keys(fam).filter((k) => fam[k] >= 1);
+    const familyCount = families.length;
+
+    let confidence = 'none';
+    if (score >= 6 && familyCount >= 2) confidence = 'high';
+    else if (score >= 4 && familyCount >= 1) confidence = 'medium';
+    else if (score >= SPAM_SCORE_THRESHOLD && familyCount >= 1) confidence = 'low';
+
+    return {
+      isSpam: confidence !== 'none',
+      score,
+      confidence,
+      families,
+      matches,
+    };
+  }
+
+  // Inject the spam pill badge (with hover tooltip) into a flagged card.
+  function injectSpamBadge(root, result) {
+    if (root.dataset.lbfSpamFlagged === 'true') return;
+    if (root.querySelector('.spam-detected-tag')) return;
+    root.dataset.lbfSpamFlagged = 'true';
+
+    const tag = document.createElement('span');
+    tag.className = 'spam-detected-tag spam-conf-' + (result.confidence || 'low');
+    tag.setAttribute('role', 'note');
+    tag.setAttribute('aria-label', 'Possible spam or engagement-bait');
+
+    const label = document.createElement('span');
+    label.className = 'spam-detected-label';
+    const conf = result.confidence || 'low';
+    label.textContent = '📢 Spammy' + (conf === 'low' ? ' ?' : '');
+    tag.appendChild(label);
+
+    const tip = document.createElement('span');
+    tip.className = 'spam-detected-tip';
+    const uniq = [...new Set(result.matches)];
+    const confText =
+      conf.charAt(0).toUpperCase() + conf.slice(1) + ' confidence';
+    tip.textContent =
+      confText + ' · Flagged for: ' + (uniq.join(', ') || 'heuristic signals');
+    tag.appendChild(tip);
+
+    getBadgeRow(root).appendChild(tag);
+  }
+
+  // Sweep tagged posts for spam. Mirrors tagAIDetection: gated by the user's
+  // spamDetector toggle; when off, existing badges are removed and posts are
+  // reset so re-enabling re-scans them.
+  function tagSpamDetection() {
+    if (!currentState.spamDetector) {
+      document
+        .querySelectorAll('.spam-detected-tag')
+        .forEach((el) => el.remove());
+      document
+        .querySelectorAll('[data-lbf-spam-checked], [data-lbf-spam-flagged]')
+        .forEach((el) => {
+          delete el.dataset.lbfSpamChecked;
+          delete el.dataset.lbfSpamFlagged;
+        });
+      return;
+    }
+    document
+      .querySelectorAll('[data-lbf-post]:not([data-lbf-spam-checked])')
+      .forEach((root) => {
+        const box = root.querySelector('[data-testid="expandable-text-box"]');
+        if (!box) return; // no commentary rendered yet — retry next pass
+        const text = (box.innerText || box.textContent || '').trim();
+        if (!text) return;
+        root.dataset.lbfSpamChecked = 'true';
+        const result = analyzePostForSpam(text);
+        if (result.isSpam) injectSpamBadge(root, result);
+      });
   }
 
   function tagFeed() {
     tagPosts();
     tagAdWidgets();
-    tagMessaging();
+    tagComposer();
+    tagAIDetection();
+    tagSpamDetection();
+    tagCommentSilencer();
+    tagTldr();
+  }
+
+  /* ===================================================================
+     ONE-CLICK LOCAL TL;DR SUMMARIZER
+     ---------------------------------------------------------------------
+     100% on-device, zero network, zero API keys. A deterministic extractive
+     summarizer (classic frequency-based sentence scoring) condenses long
+     posts to their 2 highest-signal sentences. A sleek "⚡ TL;DR" button is
+     injected on any post whose body exceeds 250 chars; clicking it collapses
+     the original paragraph and reveals a premium callout with the summary,
+     and clicking again restores the full post — all with smooth transitions.
+     =================================================================== */
+
+  const TLDR_MIN_CHARS = 250; // only long posts get the button
+  const TLDR_SENTENCES = 2; // sentences to surface
+
+  // Common English stop-words removed before frequency analysis so scoring
+  // reflects the post's distinctive vocabulary, not filler.
+  const TLDR_STOP_WORDS = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'if', 'then', 'else', 'when',
+    'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into',
+    'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from',
+    'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again',
+    'further', 'once', 'here', 'there', 'all', 'any', 'both', 'each', 'few',
+    'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
+    'own', 'same', 'so', 'than', 'too', 'very', 'can', 'will', 'just',
+    'should', 'now', 'is', 'am', 'are', 'was', 'were', 'be', 'been',
+    'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing',
+    'would', 'could', 'ought', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+    'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our',
+    'their', 'mine', 'yours', 'hers', 'ours', 'theirs', 'this', 'that',
+    'these', 'those', 'am', 'of', 'as', 'because', 'while', 'who', 'whom',
+    'which', 'what', 'whose', 'how', 'why', 'where', 'been', 'get', 'got',
+    'also', 'like', 'well', 'even', 'much', 'many', 'via', 'per', 'etc',
+    'im', 'ive', 'id', 'youre', 'dont', 'doesnt', 'didnt', 'thats',
+    'theres', 'youll', 'weve', 'lets', 'us',
+  ]);
+
+  /**
+   * Deterministic, on-device extractive summarizer.
+   * Splits text into sentences, builds a stop-word-filtered word-frequency
+   * map, scores each sentence by its normalized cumulative word frequency
+   * (length-dampened so long run-ons don't automatically win), and returns
+   * the top-scoring sentences in their original reading order.
+   * @param {string} text
+   * @param {number} [limit=2]
+   * @returns {string[]} up to `limit` clean summary sentences
+   */
+  function generateLocalSummary(text, limit = TLDR_SENTENCES) {
+    const clean = String(text || '')
+      .replace(/\s+/g, ' ')
+      .replace(/\u00a0/g, ' ')
+      .trim();
+    if (!clean) return [];
+
+    // Split into sentences on ., !, ? (keeping the terminator).
+    const rawSentences =
+      clean.match(/[^.!?…]+[.!?…]+["')\]]?|\S[^.!?…]*$/g) || [clean];
+    const sentences = rawSentences
+      .map((s) => s.trim())
+      .filter((s) => s.replace(/[^A-Za-z0-9]/g, '').length >= 12);
+
+    if (sentences.length <= limit) {
+      return sentences.map((s) => s.replace(/\s+/g, ' ').trim());
+    }
+
+    const wordsOf = (s) =>
+      (s.toLowerCase().match(/[a-z0-9']+/g) || []).filter(
+        (w) => w.length > 2 && !TLDR_STOP_WORDS.has(w)
+      );
+
+    // Word-frequency map across the whole post.
+    const freq = Object.create(null);
+    sentences.forEach((s) =>
+      wordsOf(s).forEach((w) => {
+        freq[w] = (freq[w] || 0) + 1;
+      })
+    );
+
+    // Normalize to 0..1 by the most frequent word.
+    let max = 0;
+    for (const w in freq) if (freq[w] > max) max = freq[w];
+    if (max > 0) for (const w in freq) freq[w] /= max;
+
+    // Score each sentence; dampen by sqrt(length) so a mid-length sentence
+    // rich in key terms beats a rambling one that merely repeats them.
+    const scored = sentences.map((s, i) => {
+      const w = wordsOf(s);
+      let sum = 0;
+      for (const tok of w) sum += freq[tok] || 0;
+      const score = w.length ? sum / Math.sqrt(w.length) : 0;
+      return { i, s, score };
+    });
+
+    // Take the top `limit`, then restore original reading order.
+    const top = scored
+      .slice()
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .sort((a, b) => a.i - b.i);
+
+    return top.map((x) => x.s.replace(/\s+/g, ' ').trim());
+  }
+
+  // Read a post's full body text, excluding the inline "…more" control and
+  // any of our own injected UI. Line-clamped (truncated) text is still in the
+  // DOM, so innerText returns the complete post regardless of collapse state.
+  function extractPostBodyText(box) {
+    let t = box.innerText || box.textContent || '';
+    // Drop a trailing expand affordance ("…more" / "see more").
+    t = t.replace(/[…\.]{1,3}\s*(more|see more)\s*$/i, '');
+    return t.replace(/\u00a0/g, ' ').trim();
+  }
+
+  // Smoothly collapse an element to height 0 (used to hide the original body).
+  function tldrCollapse(el) {
+    el.style.overflow = 'hidden';
+    el.style.transition = 'max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease';
+    el.style.maxHeight = el.scrollHeight + 'px';
+    void el.offsetHeight; // force reflow so the next change animates
+    el.style.maxHeight = '0px';
+    el.style.opacity = '0';
+    el.style.marginTop = '0px';
+    el.style.marginBottom = '0px';
+  }
+
+  // Smoothly restore a previously-collapsed element to its natural height.
+  function tldrExpand(el) {
+    el.style.maxHeight = el.scrollHeight + 'px';
+    el.style.opacity = '1';
+    el.style.marginTop = '';
+    el.style.marginBottom = '';
+    const clear = () => {
+      el.style.maxHeight = '';
+      el.style.overflow = '';
+      el.style.transition = '';
+      el.removeEventListener('transitionend', clear);
+    };
+    el.addEventListener('transitionend', clear);
+  }
+
+  // Build the premium summary callout with bullet points.
+  function buildSummaryBox(sentences) {
+    const boxEl = document.createElement('div');
+    boxEl.className = 'tldr-summary-box';
+
+    const heading = document.createElement('div');
+    heading.className = 'tldr-summary-heading';
+    heading.textContent = '⚡ TL;DR';
+    boxEl.appendChild(heading);
+
+    const ul = document.createElement('ul');
+    ul.className = 'tldr-summary-list';
+    sentences.forEach((s) => {
+      const li = document.createElement('li');
+      li.textContent = s;
+      ul.appendChild(li);
+    });
+    boxEl.appendChild(ul);
+    return boxEl;
+  }
+
+  // Reveal a freshly-inserted summary box with a height + opacity transition.
+  function tldrRevealBox(boxEl) {
+    boxEl.style.overflow = 'hidden';
+    boxEl.style.maxHeight = '0px';
+    boxEl.style.opacity = '0';
+    boxEl.style.transition = 'max-height 0.3s ease, opacity 0.3s ease';
+    requestAnimationFrame(() => {
+      boxEl.style.maxHeight = boxEl.scrollHeight + 'px';
+      boxEl.style.opacity = '1';
+    });
+    const clear = () => {
+      boxEl.style.maxHeight = '';
+      boxEl.style.overflow = '';
+      boxEl.removeEventListener('transitionend', clear);
+    };
+    boxEl.addEventListener('transitionend', clear);
+  }
+
+  // Collapse a summary box away, then remove it from the DOM.
+  function tldrRemoveBox(boxEl) {
+    boxEl.style.overflow = 'hidden';
+    boxEl.style.transition = 'max-height 0.3s ease, opacity 0.3s ease';
+    boxEl.style.maxHeight = boxEl.scrollHeight + 'px';
+    void boxEl.offsetHeight;
+    boxEl.style.maxHeight = '0px';
+    boxEl.style.opacity = '0';
+    let done = false;
+    const remove = () => {
+      if (done) return;
+      done = true;
+      boxEl.remove();
+    };
+    boxEl.addEventListener('transitionend', remove, { once: true });
+    setTimeout(remove, 400); // fallback if transitionend doesn't fire
+  }
+
+  // Toggle between the original post body and its local TL;DR summary.
+  function toggleTldr(btn, commentary, box) {
+    const active = btn.dataset.tldrActive === 'true';
+
+    if (!active) {
+      const summary = generateLocalSummary(extractPostBodyText(box));
+      if (!summary.length) return; // nothing meaningful to condense
+      const boxEl = buildSummaryBox(summary);
+      btn.insertAdjacentElement('afterend', boxEl);
+      tldrRevealBox(boxEl);
+      tldrCollapse(commentary);
+      btn.dataset.tldrActive = 'true';
+      btn.classList.add('tldr-active');
+      btn.textContent = 'Show Original';
+    } else {
+      const boxEl = btn.nextElementSibling;
+      if (boxEl && boxEl.classList.contains('tldr-summary-box')) {
+        tldrRemoveBox(boxEl);
+      }
+      tldrExpand(commentary);
+      btn.dataset.tldrActive = 'false';
+      btn.classList.remove('tldr-active');
+      btn.textContent = '⚡ TL;DR';
+    }
+  }
+
+  // Inject the TL;DR toggle button just after a long post's commentary body.
+  function injectTldrButton(root, box) {
+    const commentary =
+      box.closest('[componentkey^="feed-commentary"]') ||
+      box.closest('p') ||
+      box;
+    // Guard against a duplicate button for this same body.
+    if (
+      commentary.nextElementSibling &&
+      commentary.nextElementSibling.classList &&
+      commentary.nextElementSibling.classList.contains('tldr-toggle-btn')
+    ) {
+      return;
+    }
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tldr-toggle-btn';
+    btn.textContent = '⚡ TL;DR';
+    btn.setAttribute('aria-label', 'Summarize this post locally');
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleTldr(btn, commentary, box);
+    });
+
+    commentary.insertAdjacentElement('afterend', btn);
+  }
+
+  // Remove all injected TL;DR buttons/summaries and restore original bodies.
+  // Runs when the user turns the toggle off so nothing is left behind.
+  function clearTldr() {
+    document.querySelectorAll('.tldr-toggle-btn').forEach((btn) => {
+      const boxEl = btn.nextElementSibling;
+      if (boxEl && boxEl.classList.contains('tldr-summary-box')) {
+        boxEl.remove();
+      }
+      btn.remove();
+    });
+    document
+      .querySelectorAll('[data-lbf-tldr-checked]')
+      .forEach((el) => delete el.dataset.lbfTldrChecked);
+  }
+
+  // Sweep long posts and add the TL;DR button. Gated by the tldrSummarizer
+  // toggle (on by default); the button only appears on genuinely long posts.
+  function tagTldr() {
+    if (!currentState.tldrSummarizer) {
+      clearTldr();
+      return;
+    }
+    document
+      .querySelectorAll('[data-lbf-post]:not([data-lbf-tldr-checked])')
+      .forEach((root) => {
+        // Skip ads and job carousels — nothing to summarize.
+        if (
+          root.dataset.lbfSponsored === 'true' ||
+          root.dataset.lbfJobs === 'true'
+        ) {
+          root.dataset.lbfTldrChecked = 'true';
+          return;
+        }
+        const box =
+          root.querySelector(
+            '[componentkey^="feed-commentary"] [data-testid="expandable-text-box"]'
+          ) || root.querySelector('[data-testid="expandable-text-box"]');
+        if (!box) return; // commentary not rendered yet — retry next pass
+
+        const text = extractPostBodyText(box);
+        if (!text) return;
+        root.dataset.lbfTldrChecked = 'true';
+        if (text.length <= TLDR_MIN_CHARS) return; // short post — no button
+        injectTldrButton(root, box);
+      });
+  }
+
+
+  /* ===================================================================
+     ENGAGEMENT-POD / LOW-SIGNAL COMMENT SILENCER
+     ---------------------------------------------------------------------
+     100% on-device. When the user expands a post's comment section, this
+     scans each comment's text and dims (via .silenced-comment) the ones
+     that carry no real signal — the canned "Spot on!" / "Great insights,
+     thanks for sharing!" chatter that engagement pods and bots spray to
+     game the algorithm. Genuine, substantive replies (questions, reasoning,
+     disagreement, longer thoughts) are always left untouched.
+
+     Detection is intentionally conservative: it only silences a comment
+     when it is SHORT and dominated by a generic phrase, is emoji/reaction
+     only, or is a tiny hype-emoji reply. Anything with a question, a
+     reasoning word ("because", "but", "in my experience"…), or real length
+     is spared, so we never hide real discussion.
+     =================================================================== */
+
+  // Canned, low-value praise. Matched against the comment with emojis and
+  // punctuation stripped, lowercased, whitespace-collapsed.
+  const GENERIC_COMMENT_PHRASES = [
+    'spot on', 'great insights', 'great insight', 'thanks for sharing',
+    'thank you for sharing', 'thanks for sharing this', 'thanks for this',
+    'thank you for this', "couldn't agree more", 'could not agree more',
+    'couldnt agree more', 'well said', 'so well said', 'completely agree',
+    'totally agree', 'i agree', 'fully agree', 'agreed', 'love this',
+    'love it', 'so true', 'this is gold', 'pure gold', 'solid gold',
+    'nailed it', 'great post', 'great content', 'amazing post',
+    'amazing content', 'insightful', 'very insightful', 'so insightful',
+    'informative', 'very informative', 'valuable insights', 'valuable insight',
+    'great share', 'good read', 'great read', 'inspiring', 'very inspiring',
+    'so inspiring', 'congratulations', 'congrats', 'well done', 'facts',
+    'big facts', 'facts only', 'so relatable', 'needed this', 'helpful',
+    'very helpful', 'so helpful', 'great advice', 'powerful', 'so powerful',
+    'keep it up', 'good stuff', 'well articulated', 'beautifully said',
+    'perfectly said', 'well put', 'makes sense', 'great points',
+    'valid points', 'good points', 'absolutely', 'exactly this', 'exactly',
+    'this', 'preach', 'say it louder', 'underrated', 'mind blown',
+    'game changer', 'must read', 'brilliant', 'fantastic', 'awesome',
+    'amazing', 'wonderful', 'excellent', 'great work', 'great job', 'kudos',
+    'bravo', 'respect', 'legend', 'goat', 'fire', 'on point', 'true',
+    'wow', 'nice', 'love', 'yes', 'appreciate this', 'appreciate you sharing',
+    'great reminder', 'important reminder', 'so important', 'worth reading',
+    'worth the read', 'saving this', 'bookmarked', 'noted', 'good one',
+    'great one', 'so good', 'too good', 'very true', 'couldn t agree more',
+  ];
+  const GENERIC_COMMENT_SET = new Set(GENERIC_COMMENT_PHRASES);
+
+  // High-energy "hype" emojis typical of pod reactions.
+  const HYPE_EMOJI_RE =
+    /[\u{1F680}\u{1F525}\u{1F4AF}\u{1F44F}\u{1F64C}\u2705\u2714\u2764\u{1F4AA}\u2B50\u{1F31F}\u{1F3AF}\u{1F3C6}\u{1F44D}\u{1F4A5}\u{1F64F}\u{1F929}\u{1F44C}]/u;
+
+  // Markers of a genuine, substantive reply — any of these spares a comment.
+  const COMMENT_SUBSTANCE_RE =
+    /\b(because|but|however|although|though|whereas|actually|disagree|disagreed|wrong|incorrect|curious|wonder|wondering|why|how come|what about|have you|has anyone|in my experience|i think|i believe|i feel|imo|imho|for example|for instance|e\.?g\.?|specifically|data|evidence|research|study|studies|according|depends|nuance|counterpoint|on the other hand|not sure|the problem|the issue|the challenge|question)\b/i;
+
+  // Comment text containers across LinkedIn DOM variants (classic + hashed).
+  // The post's own commentary (componentkey^="feed-commentary") is excluded
+  // separately so we never dim the post body itself.
+  const COMMENT_TEXT_SELECTORS = [
+    '.comments-comment-item__main-content',
+    '.comments-comment-item .update-components-text',
+    'article.comments-comment-entity .update-components-text',
+    '[data-testid="comment-text"]',
+    '[componentkey*="omment"]:not([componentkey*="ommentary"]) [data-testid="expandable-text-box"]',
+  ].join(',');
+
+  const COMMENT_ROOT_SELECTORS =
+    '.comments-comment-item, article.comments-comment-entity, ' +
+    '[componentkey*="omment"]:not([componentkey*="ommentary"])';
+
+  /**
+   * Decide whether a comment is low-signal engagement-pod chatter.
+   * @param {string} text  raw comment text
+   * @returns {{ silence: boolean, reason?: string }}
+   */
+  function analyzeComment(text) {
+    const raw = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return { silence: false };
+
+    // Strip emoji + punctuation → phrase-matchable core.
+    const stripped = raw
+      .replace(SPAM_EMOJI_RE, ' ')
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+    // Emoji / reaction only (no letters at all) → pure noise.
+    if (!stripped) return { silence: true, reason: 'Emoji-only reaction' };
+
+    const words = stripped.split(' ');
+    const wordCount = words.length;
+    const charLen = raw.length;
+
+    // Spare anything substantial or inquisitive.
+    const asksQuestion =
+      /\?/.test(raw) && !/^\s*(agree|right|no|yes|really)\s*\?+\s*$/i.test(raw);
+    if (charLen > 160 || wordCount > 24) return { silence: false };
+    if (asksQuestion || COMMENT_SUBSTANCE_RE.test(raw)) return { silence: false };
+
+    // The whole comment IS a canned phrase (e.g. "Spot on", "Love this").
+    if (GENERIC_COMMENT_SET.has(stripped)) {
+      return { silence: true, reason: 'Canned praise' };
+    }
+
+    // Short comment dominated by a generic phrase (incl. "@name great post").
+    const hasGeneric = GENERIC_COMMENT_PHRASES.some(
+      (p) =>
+        stripped === p ||
+        stripped.startsWith(p + ' ') ||
+        stripped.endsWith(' ' + p) ||
+        stripped.includes(' ' + p + ' ')
+    );
+    if (hasGeneric && wordCount <= 8) {
+      return { silence: true, reason: 'Generic praise' };
+    }
+
+    // Tiny reply carried by a hype emoji ("🔥🔥", "So good 🚀").
+    if (charLen < 30 && HYPE_EMOJI_RE.test(raw)) {
+      return { silence: true, reason: 'Hype-emoji filler' };
+    }
+
+    return { silence: false };
+  }
+
+  // Sweep expanded comment sections. Gated by the commentSilencer toggle;
+  // when off, all dimming is removed and checks reset so re-enabling re-scans.
+  function tagCommentSilencer() {
+    if (!currentState.commentSilencer) {
+      document
+        .querySelectorAll('.silenced-comment')
+        .forEach((el) => {
+          el.classList.remove('silenced-comment');
+          delete el.dataset.lbfSilenceReason;
+        });
+      document
+        .querySelectorAll('[data-lbf-comment-checked]')
+        .forEach((el) => delete el.dataset.lbfCommentChecked);
+      return;
+    }
+    document.querySelectorAll(COMMENT_TEXT_SELECTORS).forEach((box) => {
+      if (box.dataset.lbfCommentChecked) return;
+      // Never touch the post's own commentary body.
+      if (box.closest('[componentkey^="feed-commentary"]')) return;
+      const text = (box.innerText || box.textContent || '').trim();
+      if (!text) return;
+      box.dataset.lbfCommentChecked = 'true';
+      const result = analyzeComment(text);
+      if (!result.silence) return;
+      const root = box.closest(COMMENT_ROOT_SELECTORS) || box;
+      root.classList.add('silenced-comment');
+      root.dataset.lbfSilenceReason = result.reason || 'Low-signal';
+    });
+  }
+
+
+  /* ===================================================================
+     TIME BUDGETER  (daily post-consumption limit + break overlay)
+     ---------------------------------------------------------------------
+     A per-day counter of unique content posts seen. Persisted separately
+     from the settings state under BUDGET_KEY as { date, count, bonus } so
+     it survives tab refreshes within the same calendar day and resets at
+     midnight (local time). When count exceeds (dailyPostLimit + bonus) and
+     the feature is enabled, a minimalist overlay covers the feed column.
+     =================================================================== */
+  const BUDGET_KEY = 'lbfBudget';
+  let budget = { date: todayStr(), count: 0, bonus: 0 };
+  let budgetSaveTimer = null;
+
+  function todayStr() {
+    const d = new Date();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+
+  // Normalize the loaded budget: roll over to a fresh count on a new day.
+  function normalizeBudget(saved) {
+    const today = todayStr();
+    if (!saved || saved.date !== today) {
+      return { date: today, count: 0, bonus: 0 };
+    }
+    return {
+      date: today,
+      count: Number(saved.count) || 0,
+      bonus: Number(saved.bonus) || 0,
+    };
+  }
+
+  function loadBudget(cb) {
+    chrome.storage.local.get(BUDGET_KEY, (result) => {
+      budget = normalizeBudget(result && result[BUDGET_KEY]);
+      if (cb) cb();
+    });
+  }
+
+  function saveBudget() {
+    // Debounced write to avoid hammering storage during fast scrolling.
+    clearTimeout(budgetSaveTimer);
+    budgetSaveTimer = setTimeout(() => {
+      chrome.storage.local.set({ [BUDGET_KEY]: budget });
+    }, 300);
+  }
+
+  function budgetLimit() {
+    const base = Number(currentState.dailyPostLimit) || 0;
+    return base + (budget.bonus || 0);
+  }
+
+  /* Mount-based counting.
+     Each content post is counted exactly once, the instant it mounts into
+     the DOM, deduplicated by LinkedIn's stable per-post `componentkey`.
+     Counting happens synchronously inside the MutationObserver, so it
+     cannot be outrun by fast scrolling or lost to LinkedIn's feed
+     virtualization (MutationRecords are delivered even for nodes that are
+     unmounted moments later). This keeps the running total in lockstep
+     with the posts that actually pass through the feed. */
+  const seenPostKeys = new Set();
+
+  function maybeCountRoot(root) {
+    const key = root.getAttribute && root.getAttribute('componentkey');
+    if (!key || seenPostKeys.has(key)) return;
+    seenPostKeys.add(key);
+    // Skip ads and the "Jobs recommended for you" module — they are marked
+    // in the set above so they're never revisited, but not counted.
+    if (root.dataset.lbfSponsored === 'true' || root.dataset.lbfJobs === 'true') {
+      return;
+    }
+    countPost();
+  }
+
+  // Synchronous scan of a freshly-added DOM subtree for countable posts.
+  function scanAddedForCount(node) {
+    if (!node || node.nodeType !== 1 || !node.querySelectorAll) return;
+    const spans = node.querySelectorAll(SEL.postHeading);
+    spans.forEach((span) => {
+      if ((span.textContent || '').trim().toLowerCase() !== POST_HEADING_TEXT) {
+        return;
+      }
+      const root = resolvePostRoot(span);
+      if (!root) return;
+      const key = root.getAttribute && root.getAttribute('componentkey');
+      if (!key || seenPostKeys.has(key)) return;
+      if (isPromoted(root) || isJobsModule(root)) {
+        seenPostKeys.add(key); // remember so we never count it later
+        return;
+      }
+      seenPostKeys.add(key);
+      countPost();
+    });
+  }
+
+  // Increment the running counter for one newly-seen content post.
+  function countPost() {
+    if (budget.date !== todayStr()) budget = normalizeBudget(budget);
+    budget.count += 1;
+    saveBudget();
+    enforceBudget();
+  }
+
+  // Show/hide the break overlay based on the current count vs. the limit.
+  function enforceBudget() {
+    if (!currentState.timeBudgetEnabled) {
+      removeBudgetOverlay();
+      return;
+    }
+    if (budget.date !== todayStr()) budget = normalizeBudget(budget);
+    if (budget.count > budgetLimit()) {
+      showBudgetOverlay();
+    } else {
+      removeBudgetOverlay();
+    }
+  }
+
+  function feedRailEl() {
+    return (
+      document.querySelector(SEL.feedRail) ||
+      document.querySelector('.scaffold-layout__main') ||
+      document.querySelector('main')
+    );
+  }
+
+  // Lock the fixed overlay to the feed column's horizontal extent.
+  function positionBudgetOverlay(overlay) {
+    const rail = feedRailEl();
+    const r = rail && rail.getBoundingClientRect();
+    // Fall back to the full viewport if the feed column can't be measured,
+    // so the overlay is never collapsed to a zero-width invisible strip.
+    if (!r || r.width < 40) {
+      overlay.style.left = '0px';
+      overlay.style.width = '100vw';
+      return;
+    }
+    overlay.style.left = Math.max(0, r.left) + 'px';
+    overlay.style.width = r.width + 'px';
+  }
+
+  let budgetReposition = null;
+
+  function showBudgetOverlay() {
+    let overlay = document.getElementById('lbf-budget-overlay');
+    if (overlay) {
+      positionBudgetOverlay(overlay);
+      return;
+    }
+    overlay = document.createElement('div');
+    overlay.id = 'lbf-budget-overlay';
+    overlay.className = 'lbf-budget-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Daily post limit reached');
+
+    const card = document.createElement('div');
+    card.className = 'lbf-budget-card';
+
+    const icon = document.createElement('div');
+    icon.className = 'lbf-budget-icon';
+    icon.textContent = '🌿';
+
+    const title = document.createElement('h2');
+    title.className = 'lbf-budget-title';
+    title.textContent = 'Daily limit reached. Take a break!';
+
+    const sub = document.createElement('p');
+    sub.className = 'lbf-budget-sub';
+    sub.textContent =
+      "You've viewed " + budget.count + ' posts today. Your mind will thank you.';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'lbf-budget-override';
+    btn.textContent = 'Override for 5 more posts';
+    btn.addEventListener('click', overrideBudget);
+
+    card.appendChild(icon);
+    card.appendChild(title);
+    card.appendChild(sub);
+    card.appendChild(btn);
+    overlay.appendChild(card);
+    (document.body || document.documentElement).appendChild(overlay);
+
+    positionBudgetOverlay(overlay);
+    budgetReposition = () => positionBudgetOverlay(overlay);
+    window.addEventListener('resize', budgetReposition, { passive: true });
+    window.addEventListener('scroll', budgetReposition, { passive: true });
+    lockScroll();
+  }
+
+  function removeBudgetOverlay() {
+    const overlay = document.getElementById('lbf-budget-overlay');
+    if (overlay) overlay.remove();
+    if (budgetReposition) {
+      window.removeEventListener('resize', budgetReposition);
+      window.removeEventListener('scroll', budgetReposition);
+      budgetReposition = null;
+    }
+    unlockScroll();
+  }
+
+  /* Hard scroll-lock so the break screen genuinely stops the user in-flow
+     instead of letting wheel / touch / keyboard scroll slip past it. The
+     override button and interactions inside the card remain usable. */
+  let scrollLocked = false;
+  function blockScroll(e) {
+    const overlay = document.getElementById('lbf-budget-overlay');
+    if (overlay && overlay.contains(e.target)) return; // allow the card
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  function blockScrollKeys(e) {
+    // Space, PageUp/Down, Home/End, arrows — the usual scroll keys.
+    const keys = [' ', 'PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown'];
+    const tag = (e.target && e.target.tagName) || '';
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || (e.target && e.target.isContentEditable)) {
+      return; // never hijack real typing
+    }
+    if (keys.includes(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+  function lockScroll() {
+    if (scrollLocked) return;
+    scrollLocked = true;
+    window.addEventListener('wheel', blockScroll, { passive: false, capture: true });
+    window.addEventListener('touchmove', blockScroll, { passive: false, capture: true });
+    window.addEventListener('keydown', blockScrollKeys, { capture: true });
+  }
+  function unlockScroll() {
+    if (!scrollLocked) return;
+    scrollLocked = false;
+    window.removeEventListener('wheel', blockScroll, { capture: true });
+    window.removeEventListener('touchmove', blockScroll, { capture: true });
+    window.removeEventListener('keydown', blockScrollKeys, { capture: true });
+  }
+
+  // Temporarily raise today's limit by 5 and dismiss the overlay.
+  function overrideBudget() {
+    budget.bonus = (budget.bonus || 0) + 5;
+    saveBudget();
+    enforceBudget();
+  }
+
+  /* Safety net: re-check the limit on every scroll (throttled). This makes
+     the break screen appear the instant the user scrolls past their limit,
+     even if the mutation-driven count lands a beat late — no refresh needed. */
+  let watchdogTicking = false;
+  function startBudgetWatchdog() {
+    window.addEventListener(
+      'scroll',
+      () => {
+        if (!currentState.timeBudgetEnabled || watchdogTicking) return;
+        watchdogTicking = true;
+        requestAnimationFrame(() => {
+          watchdogTicking = false;
+          enforceBudget();
+        });
+      },
+      { passive: true, capture: true }
+    );
   }
 
   /* ===================================================================
@@ -195,26 +1704,31 @@
     if (scheduled) return;
     scheduled = true;
     // requestIdleCallback keeps tagging off the critical path; falls back
-    // to a short timeout where unavailable.
+    // to a short timeout where unavailable. A tight timeout keeps post
+    // observation nearly real-time so fast scrolling doesn't outrun it.
     const run = () => {
       scheduled = false;
       tagFeed();
     };
     if ('requestIdleCallback' in window) {
-      requestIdleCallback(run, { timeout: 500 });
+      requestIdleCallback(run, { timeout: 120 });
     } else {
-      setTimeout(run, 250);
+      setTimeout(run, 100);
     }
   }
 
   function startObserver() {
     const observer = new MutationObserver((mutations) => {
+      let sawAdded = false;
       for (const m of mutations) {
         if (m.addedNodes && m.addedNodes.length) {
-          scheduleTag();
-          return;
+          sawAdded = true;
+          // Count posts synchronously as they mount — cannot be outrun by
+          // fast scrolling or lost to feed virtualization.
+          m.addedNodes.forEach(scanAddedForCount);
         }
       }
+      if (sawAdded) scheduleTag();
     });
     observer.observe(document.documentElement, {
       childList: true,
@@ -242,9 +1756,12 @@
   function init() {
     chrome.storage.local.get(STORAGE_KEY, (result) => {
       const saved = (result && result[STORAGE_KEY]) || {};
-      ensureBody(() => {
-        applyState(saved);
-        startObserver();
+      loadBudget(() => {
+        ensureBody(() => {
+          applyState(saved);
+          startObserver();
+          startBudgetWatchdog();
+        });
       });
     });
 
@@ -259,6 +1776,11 @@
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && changes[STORAGE_KEY]) {
         ensureBody(() => applyState(changes[STORAGE_KEY].newValue || {}));
+      }
+      // Sync the day counter if another tab updated it.
+      if (area === 'local' && changes[BUDGET_KEY]) {
+        budget = normalizeBudget(changes[BUDGET_KEY].newValue);
+        enforceBudget();
       }
     });
   }

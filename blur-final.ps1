@@ -1,7 +1,7 @@
 Add-Type -AssemblyName System.Drawing
 
 $dir = "e:\linkedinBeautUI\store-screenshots"
-$scale = 22   # blur strength
+$scale = 26   # pixelation: block size ~ region/scale (lower = bigger blocks)
 
 # blur regions in FINAL 1280x800 coords; rect = @(x, y, w, h)
 $jobs = [ordered]@{
@@ -14,21 +14,21 @@ $jobs = [ordered]@{
         @(1147, 769, 42, 30)     # messaging launcher avatar
     )
     "2-compact-grid.png" = @(
-        @(185, 124, 115, 16),    # "Saquib Ahmad likes this"
-        @(178, 152, 340, 42),    # Muniba Mazari name+headline
+        @(173, 120, 215, 22),    # "Saquib Ahmad likes this"
+        @(175, 150, 348, 46),    # Muniba Mazari name+headline
         @(143, 283, 420, 180),   # personal couple photo
         @(148, 462, 40, 20),     # reaction avatar
-        @(598, 128, 340, 42),    # Ben Rycroft name+headline
-        @(175, 574, 120, 18),    # "Sanyam Jain commented"
-        @(178, 602, 340, 42),    # Ponnurangam name+headline
-        @(598, 578, 380, 42)     # Alexander Gomes name+headline
+        @(596, 126, 348, 46),    # Ben Rycroft name+headline
+        @(170, 570, 205, 24),    # "Sanyam Jain commented"
+        @(175, 600, 348, 46),    # Ponnurangam name+headline
+        @(596, 576, 388, 46)     # Alexander Gomes name+headline
     )
     "3-focus-reader-insights.png" = @(
-        @(298, 119, 118, 16),    # "Santanu Singha likes this"
-        @(300, 145, 340, 45),    # Rushika Rai name+headline+services
+        @(296, 116, 130, 22),    # "Santanu Singha likes this"
+        @(298, 143, 348, 54),    # Rushika Rai name+headline+services
         @(303, 564, 34, 20),     # reaction avatar
-        @(345, 613, 120, 18),    # "Arin Verma commented"
-        @(300, 645, 340, 40),    # Yash Sharma name+headline
+        @(316, 611, 195, 28),    # "Arin Verma commented"
+        @(298, 643, 348, 48),    # Yash Sharma name+headline
         @(300, 768, 270, 32)     # bottom preview face
     )
     # 4-daily-limit.png: background already faded by break overlay -> no blur
@@ -47,25 +47,26 @@ function Blur-Region([System.Drawing.Bitmap]$img, [System.Drawing.Graphics]$g, $
     $rg.DrawImage($img, (New-Object System.Drawing.Rectangle(0, 0, $w, $h)), $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
     $rg.Dispose()
 
-    for ($pass = 0; $pass -lt 3; $pass++) {
-        $sw = [Math]::Max(1, [int]($w / $scale))
-        $sh = [Math]::Max(1, [int]($h / $scale))
-        $small = New-Object System.Drawing.Bitmap($sw, $sh)
-        $sg = [System.Drawing.Graphics]::FromImage($small)
-        $sg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
-        $sg.DrawImage($region, 0, 0, $sw, $sh)
-        $sg.Dispose()
+    # 1) pixelate with NearestNeighbor (destroys text detail reliably)
+    $bw = [Math]::Max(2, [int]($w / $scale))
+    $bh = [Math]::Max(2, [int]($h / $scale))
+    $small = New-Object System.Drawing.Bitmap($bw, $bh)
+    $sg = [System.Drawing.Graphics]::FromImage($small)
+    $sg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+    $sg.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
+    $sg.DrawImage($region, 0, 0, $bw, $bh)
+    $sg.Dispose()
 
-        $rg2 = [System.Drawing.Graphics]::FromImage($region)
-        $rg2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
-        $rg2.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-        $rg2.DrawImage($small, 0, 0, $w, $h)
-        $rg2.Dispose()
-        $small.Dispose()
-    }
+    # upscale back with NearestNeighbor -> solid mosaic blocks (guaranteed unreadable)
+    $rg2 = [System.Drawing.Graphics]::FromImage($region)
+    $rg2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+    $rg2.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
+    $rg2.DrawImage($small, (New-Object System.Drawing.Rectangle(0, 0, $w, $h)), (New-Object System.Drawing.Rectangle(0, 0, $bw, $bh)), [System.Drawing.GraphicsUnit]::Pixel)
+    $rg2.Dispose()
+    $small.Dispose()
 
     $g.DrawImage($region, $x, $y, $w, $h)
-    $wash = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(60, 255, 255, 255))
+    $wash = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(40, 255, 255, 255))
     $g.FillRectangle($wash, $x, $y, $w, $h)
     $wash.Dispose()
     $region.Dispose()

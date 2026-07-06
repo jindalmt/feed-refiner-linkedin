@@ -17,19 +17,19 @@
   const STORAGE_KEY = 'lbfState';
 
   const DEFAULT_STATE = {
-    mode: 'classic', // 'zen' | 'executive' | 'classic'
-    hideLeft: false,
-    hideRight: false,
-    hidePromoted: false,
-    hideVanity: false,
-    hideJobs: false,
-    hideComposer: false,
-    aiDetector: false,
-    spamDetector: false,
-    commentSilencer: false,
-    tldrSummarizer: true,
-    timeBudgetEnabled: false,
-    dailyPostLimit: 30,
+    mode: 'zen', // 'zen' | 'executive' | 'classic'
+    hideLeft: true,
+    hideRight: true,
+    hidePromoted: true,
+    hideVanity: true,
+    hideJobs: true,
+    hideComposer: true,
+    aiDetector: true,
+    spamDetector: true,
+    commentSilencer: true,
+    tldrSummarizer: false,
+    timeBudgetEnabled: true,
+    dailyPostLimit: 40,
   };
 
   const MODES = ['zen', 'executive', 'classic'];

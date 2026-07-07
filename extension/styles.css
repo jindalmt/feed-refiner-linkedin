@@ -116,14 +116,19 @@ body.mode-executive section[aria-label="Primary content"] {
   flex: 0 1 var(--lbf-exec-width) !important;
 }
 
-/* Turn the single-column feed list into a responsive multi-column grid.
-   The LazyColumn's transparent wrappers are collapsed with display:contents
-   so the tagged post cards become the actual grid items. Degrades safely
-   to a single column if the internal structure changes. */
+/* Turn the single-column feed list into a stable two-column grid. Grid is
+   used (not multi-column) because it does NOT re-balance during LinkedIn's
+   virtualized scroll, so there is no flicker as posts mount/unmount.
+   `grid-auto-flow: dense` backfills any hole a hidden promoted post / ad
+   would otherwise leave, so there are no reserved empty cells. The
+   LazyColumn's transparent wrappers stay display:contents so the tagged
+   post cards become the actual grid items. */
 body.mode-executive [data-testid="mainFeed"] {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 12px !important;
+  grid-auto-flow: row dense !important;
+  column-gap: 22px !important;
+  row-gap: 20px !important;
   align-items: start !important;
 }
 body.mode-executive [data-testid="mainFeed"] > [data-lazy-mount-id],
@@ -132,12 +137,16 @@ body.mode-executive [data-testid="mainFeed"] > div[style*="display: contents"] {
   display: contents !important;
 }
 
-/* Condensed, informational cards */
+/* Condensed, informational cards. A gentle elevation + lighter border lets
+   each card read as its own calm surface, so two adjacent posts feel spaced
+   apart instead of a cluttered grid of stacked outlines. */
 body.mode-executive [data-lbf-post] {
   font-size: 13px !important;
   line-height: 1.4 !important;
-  border: 1px solid rgba(0, 0, 0, 0.1) !important;
-  border-radius: 8px !important;
+  background: #fff !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 16px rgba(0, 0, 0, 0.05) !important;
   overflow: hidden !important;
 }
 

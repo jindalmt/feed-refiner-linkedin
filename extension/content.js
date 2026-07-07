@@ -786,7 +786,7 @@
       .forEach((root) => {
         const box = root.querySelector('[data-testid="expandable-text-box"]');
         if (!box) return; // no commentary rendered yet — retry next pass
-        const text = (box.innerText || box.textContent || '').trim();
+        const text = readBoxText(box);
         if (!text) return;
         root.dataset.lbfAiChecked = 'true';
         const result = analyzePostForAI(text);
@@ -957,7 +957,7 @@
       .forEach((root) => {
         const box = root.querySelector('[data-testid="expandable-text-box"]');
         if (!box) return; // no commentary rendered yet — retry next pass
-        const text = (box.innerText || box.textContent || '').trim();
+        const text = readBoxText(box);
         if (!text) return;
         root.dataset.lbfSpamChecked = 'true';
         const result = analyzePostForSpam(text);
@@ -965,14 +965,32 @@
       });
   }
 
+  // Per-pass text cache. Several detectors (AI, spam, TL;DR) need the same
+  // post's text within a single tagFeed pass, and reading innerText forces a
+  // synchronous layout reflow. Reading each box at most once per pass keeps
+  // fast-scroll tagging cheap (was up to 3 reflows per post; now 1).
+  let passTextCache = null;
+  function readBoxText(box) {
+    if (!box) return '';
+    if (passTextCache && passTextCache.has(box)) return passTextCache.get(box);
+    const text = (box.innerText || box.textContent || '').trim();
+    if (passTextCache) passTextCache.set(box, text);
+    return text;
+  }
+
   function tagFeed() {
-    tagPosts();
-    tagAdWidgets();
-    tagComposer();
-    tagAIDetection();
-    tagSpamDetection();
-    tagCommentSilencer();
-    tagTldr();
+    passTextCache = new Map();
+    try {
+      tagPosts();
+      tagAdWidgets();
+      tagComposer();
+      tagAIDetection();
+      tagSpamDetection();
+      tagCommentSilencer();
+      tagTldr();
+    } finally {
+      passTextCache = null;
+    }
   }
 
   /* ===================================================================
@@ -1081,7 +1099,7 @@
   // any of our own injected UI. Line-clamped (truncated) text is still in the
   // DOM, so innerText returns the complete post regardless of collapse state.
   function extractPostBodyText(box) {
-    let t = box.innerText || box.textContent || '';
+    let t = readBoxText(box);
     // Drop a trailing expand affordance ("…more" / "see more").
     t = t.replace(/[…\.]{1,3}\s*(more|see more)\s*$/i, '');
     return t.replace(/\u00a0/g, ' ').trim();
@@ -1418,7 +1436,7 @@
       if (box.dataset.lbfCommentChecked) return;
       // Never touch the post's own commentary body.
       if (box.closest('[componentkey^="feed-commentary"]')) return;
-      const text = (box.innerText || box.textContent || '').trim();
+      const text = readBoxText(box);
       if (!text) return;
       box.dataset.lbfCommentChecked = 'true';
       const result = analyzeComment(text);
